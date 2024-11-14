@@ -8,6 +8,10 @@
 #include "view/macho/machoview.h"
 #include "MetadataSerializable.hpp"
 #include "../api/sharedcachecore.h"
+#include "immer/map.hpp" 
+#include "immer/vector.hpp" 
+#include "immer/vector_transient.hpp" 
+#include "immer/map_transient.hpp" 
 
 #ifndef SHAREDCACHE_SHAREDCACHE_H
 #define SHAREDCACHE_SHAREDCACHE_H
@@ -60,7 +64,7 @@ namespace SharedCacheCore {
 	{
 		std::string installName;
 		uint64_t headerLocation;
-		std::vector<MemoryRegion> regions;
+		immer::vector<MemoryRegion> regions;
 
 		void Store(SerializationContext& context) const
 		{
@@ -80,13 +84,14 @@ namespace SharedCacheCore {
 			MSL(installName);
 			MSL(headerLocation);
 			auto bArr = context.doc["regions"].GetArray();
-			regions.clear();
+			auto local_regions = immer::vector_transient<MemoryRegion>();
 			for (auto& region : bArr)
 			{
 				MemoryRegion r;
 				r.LoadFromString(region.GetString());
-				regions.push_back(r);
+				local_regions.push_back(r);
 			}
+			regions = local_regions.persistent();
 		}
 	};
 
@@ -115,7 +120,7 @@ namespace SharedCacheCore {
 	{
 		std::string path;
 		bool isPrimary = false;
-		std::vector<dyld_cache_mapping_info> mappings;
+		immer::vector<dyld_cache_mapping_info> mappings;
 
 		void Store(SerializationContext& context) const;
 		void Load(DeserializationContext& context);
@@ -378,36 +383,36 @@ namespace SharedCacheCore {
 	{
 		uint64_t textBase = 0;
 		uint64_t loadCommandOffset = 0;
-		mach_header_64 ident;
+		mach_header_64 ident {};
 		std::string identifierPrefix;
 		std::string installName;
 
-		std::vector<std::pair<uint64_t, bool>> entryPoints;
-		std::vector<uint64_t> m_entryPoints;  // list of entrypoints
+		immer::vector<std::pair<uint64_t, bool>> entryPoints;
+		immer::vector<uint64_t> m_entryPoints;  // list of entrypoints
 
-		symtab_command symtab;
-		dysymtab_command dysymtab;
-		dyld_info_command dyldInfo;
-		routines_command_64 routines64;
-		function_starts_command functionStarts;
-		std::vector<section_64> moduleInitSections;
-		linkedit_data_command exportTrie;
+		symtab_command symtab {};
+		dysymtab_command dysymtab {};
+		dyld_info_command dyldInfo {};
+		routines_command_64 routines64 {};
+		function_starts_command functionStarts {};
+		immer::vector<section_64> moduleInitSections;
+		linkedit_data_command exportTrie {};
 		linkedit_data_command chainedFixups {};
 
 		uint64_t relocationBase;
 		// Section and program headers, internally use 64-bit form as it is a superset of 32-bit
-		std::vector<segment_command_64> segments;  // only three types of sections __TEXT, __DATA, __IMPORT
-		segment_command_64 linkeditSegment;
-		std::vector<section_64> sections;
-		std::vector<std::string> sectionNames;
+		immer::vector<segment_command_64> segments;  // only three types of sections __TEXT, __DATA, __IMPORT
+		segment_command_64 linkeditSegment {};
+		immer::vector<section_64> sections;
+		immer::vector<std::string> sectionNames;
 
-		std::vector<section_64> symbolStubSections;
-		std::vector<section_64> symbolPointerSections;
+		immer::vector<section_64> symbolStubSections;
+		immer::vector<section_64> symbolPointerSections;
 
-		std::vector<std::string> dylibs;
+		immer::vector<std::string> dylibs;
 
-		build_version_command buildVersion;
-		std::vector<build_tool_version> buildToolVersions;
+		build_version_command buildVersion {};
+		immer::vector<build_tool_version> buildToolVersions;
 
 		std::string exportTriePath;
 
@@ -594,20 +599,20 @@ namespace SharedCacheCore {
 		std::string ImageNameForAddress(uint64_t address);
 		std::vector<std::string> GetAvailableImages();
 
-		std::vector<MemoryRegion> GetMappedRegions() const;
+		immer::vector<MemoryRegion> GetMappedRegions() const;
 		bool IsMemoryMapped(uint64_t address);
 
 		std::vector<std::pair<std::string, Ref<Symbol>>> LoadAllSymbolsAndWait();
 
-		const std::unordered_map<std::string, uint64_t>& AllImageStarts() const;
-		const std::unordered_map<uint64_t, SharedCacheMachOHeader>& AllImageHeaders() const;
+		const immer::map<std::string, uint64_t>& AllImageStarts() const;
+		const immer::map<uint64_t, SharedCacheMachOHeader>& AllImageHeaders() const;
 
 		std::string SerializedImageHeaderForAddress(uint64_t address);
 		std::string SerializedImageHeaderForName(std::string name);
 
 		void FindSymbolAtAddrAndApplyToAddr(uint64_t symbolLocation, uint64_t targetLocation, bool triggerReanalysis);
 
-		const std::vector<BackingCache>& BackingCaches() const;
+		const immer::vector<BackingCache>& BackingCaches() const;
 
 		DSCViewState ViewState() const;
 
@@ -620,7 +625,7 @@ private:
 		std::optional<SharedCacheMachOHeader> LoadHeaderForAddress(
 			std::shared_ptr<VM> vm, uint64_t address, std::string_view installName);
 		void InitializeHeader(
-			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, std::vector<MemoryRegion*> regionsToLoad);
+			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, const std::vector<const MemoryRegion*> regionsToLoad);
 		void ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer,
 			uint64_t textBase, const std::string& currentText, size_t cursor, uint32_t endGuard);
 		std::vector<Ref<Symbol>> ParseExportTrie(
