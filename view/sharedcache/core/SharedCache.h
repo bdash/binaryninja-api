@@ -67,13 +67,13 @@ namespace SharedCacheCore {
 		{
 			MSS(installName);
 			MSS(headerLocation);
-			rapidjson::Value key("regions", context.allocator);
-			rapidjson::Value bArr(rapidjson::kArrayType);
+			Serialize(context, "regions");
+			context.writer.StartArray();
 			for (auto& region : regions)
 			{
-				bArr.PushBack(rapidjson::Value(region.AsString().c_str(), context.allocator), context.allocator);
+				Serialize(context, region.AsString());
 			}
-			context.doc.AddMember(key, bArr, context.allocator);
+			context.writer.EndArray();
 		}
 
 		void Load(DeserializationContext& context)

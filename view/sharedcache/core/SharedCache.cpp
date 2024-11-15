@@ -3325,79 +3325,50 @@ namespace SharedCacheCore {
 
 void SharedCache::Store(SerializationContext& context) const
 {
-	context.doc.AddMember("metadataVersion", METADATA_VERSION, context.allocator);
+	Serialize(context, "metadataVersion", METADATA_VERSION);
 
 	MSS(m_viewState);
 	MSS_CAST(m_cacheFormat, uint8_t);
 	MSS(m_imageStarts);
 	MSS(m_baseFilePath);
-	rapidjson::Value headers(rapidjson::kArrayType);
+
+	Serialize(context, "headers");
+	context.writer.StartArray();
 	for (auto& [k, v] : m_headers)
 	{
-		headers.PushBack(v.AsDocument(), context.allocator);
+		context.writer.StartObject();
+		v.Store(context);
+		context.writer.EndObject();
 	}
-	context.doc.AddMember("headers", headers, context.allocator);
-	// std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>>>>
-	// m_exportInfos std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::pair<BNSymbolType,
-	// std::string>>>>> exportInfos;
-	rapidjson::Document exportInfos(rapidjson::kArrayType);
+	context.writer.EndArray();
 
+	Serialize(context, "exportInfos");
+	context.writer.StartArray();
 	for (const auto& pair1 : m_exportInfos)
 	{
-		rapidjson::Value subObj(rapidjson::kObjectType);
-		rapidjson::Value subArr(rapidjson::kArrayType);
+		context.writer.StartObject();
+		Serialize(context, "key", pair1.first);
+		Serialize(context, "value");
+		context.writer.StartArray();
 		for (const auto& pair2 : pair1.second)
 		{
-			rapidjson::Value subSubObj(rapidjson::kObjectType);
-			subSubObj.AddMember("key", pair2.first, context.allocator);
-			subSubObj.AddMember("val1", pair2.second.first, context.allocator);
-			subSubObj.AddMember("val2", pair2.second.second, context.allocator);
-			subArr.PushBack(subSubObj, context.allocator);
+			context.writer.StartObject();
+			Serialize(context, "key", pair2.first);
+			Serialize(context, "val1", pair2.second.first);
+			Serialize(context, "val2", pair2.second.second);
+			context.writer.EndObject();
 		}
+		context.writer.EndArray();
+		context.writer.EndObject();
+	}
+	context.writer.EndArray();
 
-		subObj.AddMember("key", pair1.first, context.allocator);
-		subObj.AddMember("value", subArr, context.allocator);
-
-		exportInfos.PushBack(subObj, context.allocator);
-	}
-	context.doc.AddMember("exportInfos", exportInfos, context.allocator);
-
-	rapidjson::Value backingCaches(rapidjson::kArrayType);
-	for (auto& bc : m_backingCaches)
-	{
-		backingCaches.PushBack(bc.AsDocument(), context.allocator);
-	}
-	context.doc.AddMember("backingCaches", backingCaches, context.allocator);
-	rapidjson::Value stubIslands(rapidjson::kArrayType);
-	for (auto& si : m_stubIslandRegions)
-	{
-		stubIslands.PushBack(si.AsDocument(), context.allocator);
-	}
-	rapidjson::Value images(rapidjson::kArrayType);
-	for (auto& img : m_images)
-	{
-		images.PushBack(img.AsDocument(), context.allocator);
-	}
-	context.doc.AddMember("images", images, context.allocator);
-	rapidjson::Value regionsMappedIntoMemory(rapidjson::kArrayType);
-	for (auto& r : m_regionsMappedIntoMemory)
-	{
-		regionsMappedIntoMemory.PushBack(r.AsDocument(), context.allocator);
-	}
-	context.doc.AddMember("regionsMappedIntoMemory", regionsMappedIntoMemory, context.allocator);
-	context.doc.AddMember("stubIslands", stubIslands, context.allocator);
-	rapidjson::Value dyldDataSections(rapidjson::kArrayType);
-	for (auto& si : m_dyldDataRegions)
-	{
-		dyldDataSections.PushBack(si.AsDocument(), context.allocator);
-	}
-	context.doc.AddMember("dyldDataSections", dyldDataSections, context.allocator);
-	rapidjson::Value nonImageRegions(rapidjson::kArrayType);
-	for (auto& si : m_nonImageRegions)
-	{
-		nonImageRegions.PushBack(si.AsDocument(), context.allocator);
-	}
-	context.doc.AddMember("nonImageRegions", nonImageRegions, context.allocator);
+	Serialize(context, "backingCaches", m_backingCaches);
+	Serialize(context, "stubIslands", m_stubIslandRegions);
+	Serialize(context, "images", m_images);
+	Serialize(context, "regionsMappedIntoMemory", m_regionsMappedIntoMemory);
+	Serialize(context, "dyldDataSections", m_dyldDataRegions);
+	Serialize(context, "nonImageRegions", m_nonImageRegions);
 }
 
 void SharedCache::Load(DeserializationContext& context)

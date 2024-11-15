@@ -2,24 +2,53 @@
 
 namespace SharedCacheCore {
 
-using namespace BinaryNinja;
+void Serialize(SerializationContext& context, std::string_view str) {
+	context.writer.String(str.data(), str.length());
+}
 
-struct DeserializationContext;
+void Serialize(SerializationContext& context, const char* value) {
+	Serialize(context, std::string_view(value));
+}
 
-void Serialize(SerializationContext& context, std::string_view name, bool b)
+void Serialize(SerializationContext& context, bool b)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
+	context.writer.Bool(b);
+}
+
+void Serialize(SerializationContext& context, int8_t value) {
+	context.writer.Int(value);
+}
+
+void Serialize(SerializationContext& context, uint8_t value) {
+	context.writer.Uint(value);
+}
+
+void Serialize(SerializationContext& context, int16_t value) {
+	context.writer.Int(value);
+}
+
+void Serialize(SerializationContext& context, uint16_t value) {
+	context.writer.Uint(value);
+}
+
+void Serialize(SerializationContext& context, int32_t value) {
+	context.writer.Int(value);
+}
+
+void Serialize(SerializationContext& context, uint32_t value) {
+	context.writer.Uint(value);
+}
+
+void Serialize(SerializationContext& context, int64_t value) {
+	context.writer.Int64(value);
+}
+
+void Serialize(SerializationContext& context, uint64_t value) {
+	context.writer.Uint64(value);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, bool& b) {
 	b = context.doc[name.data()].GetBool();
-}
-
-void Serialize(SerializationContext& context, std::string_view name, uint8_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, uint8_t& b)
@@ -27,21 +56,9 @@ void Deserialize(DeserializationContext& context, std::string_view name, uint8_t
 	b = static_cast<uint8_t>(context.doc[name.data()].GetUint64());
 }
 
-void Serialize(SerializationContext& context, std::string_view name, uint16_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, uint16_t& b)
 {
 	b = static_cast<uint16_t>(context.doc[name.data()].GetUint64());
-}
-
-void Serialize(SerializationContext& context, std::string_view name, uint32_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, uint32_t& b)
@@ -49,21 +66,9 @@ void Deserialize(DeserializationContext& context, std::string_view name, uint32_
 	b = static_cast<uint32_t>(context.doc[name.data()].GetUint64());
 }
 
-void Serialize(SerializationContext& context, std::string_view name, uint64_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, uint64_t& b)
 {
 	b = context.doc[name.data()].GetUint64();
-}
-
-void Serialize(SerializationContext& context, std::string_view name, int8_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, int8_t& b)
@@ -71,21 +76,9 @@ void Deserialize(DeserializationContext& context, std::string_view name, int8_t&
 	b = context.doc[name.data()].GetInt64();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, int16_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, int16_t& b)
 {
 	b = context.doc[name.data()].GetInt64();
-}
-
-void Serialize(SerializationContext& context, std::string_view name, int32_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, int32_t& b)
@@ -93,42 +86,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, int32_t
 	b = context.doc[name.data()].GetInt();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, int64_t b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	context.doc.AddMember(key, b, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, int64_t& b)
 {
 	b = context.doc[name.data()].GetInt64();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, std::string_view b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value value(b.data(), context.allocator);
-	context.doc.AddMember(key, value, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::string& b)
 {
 	b = context.doc[name.data()].GetString();
-}
-
-void Serialize(SerializationContext& context, std::string_view name, const std::map<uint64_t, std::string>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value p(rapidjson::kArrayType);
-		p.PushBack(i.first, context.allocator);
-		rapidjson::Value value(i.second.c_str(), context.allocator);
-		p.PushBack(value, context.allocator);
-		bArr.PushBack(p, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::map<uint64_t, std::string>& b)
@@ -137,85 +102,16 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ma
 		b[i.GetArray()[0].GetUint64()] = i.GetArray()[1].GetString();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<uint64_t, std::string>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value p(rapidjson::kArrayType);
-		p.PushBack(i.first, context.allocator);
-		rapidjson::Value value(i.second.c_str(), context.allocator);
-		p.PushBack(value, context.allocator);
-		bArr.PushBack(p, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
-void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<std::string, std::string>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value p(rapidjson::kArrayType);
-		rapidjson::Value _key(i.first.c_str(), context.allocator);
-		rapidjson::Value value(i.second.c_str(), context.allocator);
-		p.PushBack(_key, context.allocator);
-		p.PushBack(value, context.allocator);
-		bArr.PushBack(p, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<uint64_t, std::string>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
 		b[i.GetArray()[0].GetUint64()] = i.GetArray()[1].GetString();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<uint64_t, uint64_t>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value p(rapidjson::kArrayType);
-		p.PushBack(i.first, context.allocator);
-		p.PushBack(i.second, context.allocator);
-		bArr.PushBack(p, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<uint64_t, uint64_t>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
 		b[i.GetArray()[0].GetUint64()] = i.GetArray()[1].GetUint64();
-}
-
-// std::unordered_map<std::string, std::unordered_map<uint64_t, uint64_t>>
-void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<std::string, std::unordered_map<uint64_t, uint64_t>>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value classes(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value classArr(rapidjson::kArrayType);
-		rapidjson::Value classKey(i.first.c_str(), context.allocator);
-		classArr.PushBack(classKey, context.allocator);
-		rapidjson::Value membersArr(rapidjson::kArrayType);
-		for (auto& j : i.second)
-		{
-			rapidjson::Value member(rapidjson::kArrayType);
-			member.PushBack(j.first, context.allocator);
-			member.PushBack(j.second, context.allocator);
-			membersArr.PushBack(member, context.allocator);
-		}
-		classArr.PushBack(membersArr, context.allocator);
-		classes.PushBack(classArr, context.allocator);
-	}
-	context.doc.AddMember(key, classes, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<std::string, std::unordered_map<uint64_t, uint64_t>>& b)
@@ -238,37 +134,20 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::un
 		b[i.GetArray()[0].GetString()] = i.GetArray()[1].GetString();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::string>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (const auto& s : b)
-	{
-		rapidjson::Value value(s.c_str(), context.allocator);
-		bArr.PushBack(value, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::string>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
 		b.emplace_back(i.GetString());
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b)
+// Note: This flattens the pair into [first, second.first, second.second] with no nested arrays.
+void Serialize(SerializationContext& context, const std::pair<uint64_t, std::pair<uint64_t, uint64_t>>& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value segV(rapidjson::kArrayType);
-		segV.PushBack(i.first, context.allocator);
-		segV.PushBack(i.second.first, context.allocator);
-		segV.PushBack(i.second.second, context.allocator);
-		bArr.PushBack(segV, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.first);
+	Serialize(context, value.second.first);
+	Serialize(context, value.second.second);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b)
@@ -283,20 +162,6 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	}
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::pair<uint64_t, bool>>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value segV(rapidjson::kArrayType);
-		segV.PushBack(i.first, context.allocator);
-		segV.PushBack(i.second, context.allocator);
-		bArr.PushBack(segV, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, bool>>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
@@ -308,17 +173,6 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	}
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<uint64_t>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		bArr.PushBack(i, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<uint64_t>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
@@ -327,52 +181,12 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	}
 }
 
-// std::unordered_map<std::string, uint64_t>
-void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<std::string, uint64_t>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value p(rapidjson::kArrayType);
-		rapidjson::Value _key(i.first.c_str(), context.allocator);
-		p.PushBack(_key, context.allocator);
-		p.PushBack(i.second, context.allocator);
-		bArr.PushBack(p, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<std::string, uint64_t>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
 	{
 		b[i.GetArray()[0].GetString()] = i.GetArray()[1].GetUint64();
 	}
-}
-
-// std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::string>>>>
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::string>>>>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& i : b)
-	{
-		rapidjson::Value segV(rapidjson::kArrayType);
-		segV.PushBack(i.first, context.allocator);
-		rapidjson::Value segArr(rapidjson::kArrayType);
-		for (auto& j : i.second)
-		{
-			rapidjson::Value segPair(rapidjson::kArrayType);
-			segPair.PushBack(j.first, context.allocator);
-			rapidjson::Value segStr(j.second.c_str(), context.allocator);
-			segPair.PushBack(segStr, context.allocator);
-			segArr.PushBack(segPair, context.allocator);
-		}
-		segV.PushBack(segArr, context.allocator);
-		bArr.PushBack(segV, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::string>>>>& b)
@@ -389,19 +203,17 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	}
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const mach_header_64& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.magic, context.allocator);
-	bArr.PushBack(b.cputype, context.allocator);
-	bArr.PushBack(b.cpusubtype, context.allocator);
-	bArr.PushBack(b.filetype, context.allocator);
-	bArr.PushBack(b.ncmds, context.allocator);
-	bArr.PushBack(b.sizeofcmds, context.allocator);
-	bArr.PushBack(b.flags, context.allocator);
-	bArr.PushBack(b.reserved, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+void Serialize(SerializationContext& context, const mach_header_64& value) {
+	context.writer.StartArray();
+	Serialize(context, value.magic);
+	Serialize(context, value.cputype);
+	Serialize(context, value.cpusubtype);
+	Serialize(context, value.filetype);
+	Serialize(context, value.ncmds);
+	Serialize(context, value.sizeofcmds);
+	Serialize(context, value.flags);
+	Serialize(context, value.reserved);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, mach_header_64& b)
@@ -417,17 +229,16 @@ void Deserialize(DeserializationContext& context, std::string_view name, mach_he
 	b.reserved = bArr[7].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const symtab_command& b)
+void Serialize(SerializationContext& context, const symtab_command& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.symoff, context.allocator);
-	bArr.PushBack(b.nsyms, context.allocator);
-	bArr.PushBack(b.stroff, context.allocator);
-	bArr.PushBack(b.strsize, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.symoff);
+	Serialize(context, value.nsyms);
+	Serialize(context, value.stroff);
+	Serialize(context, value.strsize);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, symtab_command& b)
@@ -441,31 +252,30 @@ void Deserialize(DeserializationContext& context, std::string_view name, symtab_
 	b.strsize = bArr[5].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const dysymtab_command& b)
+void Serialize(SerializationContext& context, const dysymtab_command& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.ilocalsym, context.allocator);
-	bArr.PushBack(b.nlocalsym, context.allocator);
-	bArr.PushBack(b.iextdefsym, context.allocator);
-	bArr.PushBack(b.nextdefsym, context.allocator);
-	bArr.PushBack(b.iundefsym, context.allocator);
-	bArr.PushBack(b.nundefsym, context.allocator);
-	bArr.PushBack(b.tocoff, context.allocator);
-	bArr.PushBack(b.ntoc, context.allocator);
-	bArr.PushBack(b.modtaboff, context.allocator);
-	bArr.PushBack(b.nmodtab, context.allocator);
-	bArr.PushBack(b.extrefsymoff, context.allocator);
-	bArr.PushBack(b.nextrefsyms, context.allocator);
-	bArr.PushBack(b.indirectsymoff, context.allocator);
-	bArr.PushBack(b.nindirectsyms, context.allocator);
-	bArr.PushBack(b.extreloff, context.allocator);
-	bArr.PushBack(b.nextrel, context.allocator);
-	bArr.PushBack(b.locreloff, context.allocator);
-	bArr.PushBack(b.nlocrel, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.ilocalsym);
+	Serialize(context, value.nlocalsym);
+	Serialize(context, value.iextdefsym);
+	Serialize(context, value.nextdefsym);
+	Serialize(context, value.iundefsym);
+	Serialize(context, value.nundefsym);
+	Serialize(context, value.tocoff);
+	Serialize(context, value.ntoc);
+	Serialize(context, value.modtaboff);
+	Serialize(context, value.nmodtab);
+	Serialize(context, value.extrefsymoff);
+	Serialize(context, value.nextrefsyms);
+	Serialize(context, value.indirectsymoff);
+	Serialize(context, value.nindirectsyms);
+	Serialize(context, value.extreloff);
+	Serialize(context, value.nextrel);
+	Serialize(context, value.locreloff);
+	Serialize(context, value.nlocrel);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, dysymtab_command& b)
@@ -493,23 +303,22 @@ void Deserialize(DeserializationContext& context, std::string_view name, dysymta
 	b.nlocrel = bArr[19].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const dyld_info_command& b)
+void Serialize(SerializationContext& context, const dyld_info_command& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.rebase_off, context.allocator);
-	bArr.PushBack(b.rebase_size, context.allocator);
-	bArr.PushBack(b.bind_off, context.allocator);
-	bArr.PushBack(b.bind_size, context.allocator);
-	bArr.PushBack(b.weak_bind_off, context.allocator);
-	bArr.PushBack(b.weak_bind_size, context.allocator);
-	bArr.PushBack(b.lazy_bind_off, context.allocator);
-	bArr.PushBack(b.lazy_bind_size, context.allocator);
-	bArr.PushBack(b.export_off, context.allocator);
-	bArr.PushBack(b.export_size, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.rebase_off);
+	Serialize(context, value.rebase_size);
+	Serialize(context, value.bind_off);
+	Serialize(context, value.bind_size);
+	Serialize(context, value.weak_bind_off);
+	Serialize(context, value.weak_bind_size);
+	Serialize(context, value.lazy_bind_off);
+	Serialize(context, value.lazy_bind_size);
+	Serialize(context, value.export_off);
+	Serialize(context, value.export_size);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, dyld_info_command& b)
@@ -529,15 +338,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, dyld_in
 	b.export_size = bArr[11].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const routines_command_64& b)
+void Serialize(SerializationContext& context, const routines_command_64& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.init_address, context.allocator);
-	bArr.PushBack(b.init_module, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.init_address);
+	Serialize(context, value.init_module);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, routines_command_64& b)
@@ -549,15 +357,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, routine
 	b.init_module = bArr[3].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const function_starts_command& b)
+void Serialize(SerializationContext& context, const function_starts_command& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.funcoff, context.allocator);
-	bArr.PushBack(b.funcsize, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.funcoff);
+	Serialize(context, value.funcsize);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, function_starts_command& b)
@@ -569,40 +376,26 @@ void Deserialize(DeserializationContext& context, std::string_view name, functio
 	b.funcsize = bArr[3].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<section_64>& b)
+void Serialize(SerializationContext& context, const section_64& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& s : b)
-	{
-		rapidjson::Value sArr(rapidjson::kArrayType);
-		std::string sectNameStr;
-		char sectName[16];
-		memcpy(sectName, s.sectname, 16);
-		sectName[15] = 0;
-		sectNameStr = std::string(sectName);
-		sArr.PushBack(
-			rapidjson::Value(sectNameStr.c_str(), context.allocator), context.allocator);
-		std::string segNameStr;
-		char segName[16];
-		memcpy(segName, s.segname, 16);
-		segName[15] = 0;
-		segNameStr = std::string(segName);
-		sArr.PushBack(
-			rapidjson::Value(segNameStr.c_str(), context.allocator), context.allocator);
-		sArr.PushBack(s.addr, context.allocator);
-		sArr.PushBack(s.size, context.allocator);
-		sArr.PushBack(s.offset, context.allocator);
-		sArr.PushBack(s.align, context.allocator);
-		sArr.PushBack(s.reloff, context.allocator);
-		sArr.PushBack(s.nreloc, context.allocator);
-		sArr.PushBack(s.flags, context.allocator);
-		sArr.PushBack(s.reserved1, context.allocator);
-		sArr.PushBack(s.reserved2, context.allocator);
-		sArr.PushBack(s.reserved3, context.allocator);
-		bArr.PushBack(sArr, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+
+	std::string_view sectname(value.sectname, 16);
+	std::string_view segname(value.segname, 16);
+
+	Serialize(context, sectname.substr(0, sectname.find('\0')));
+	Serialize(context, segname.substr(0, segname.find('\0')));
+	Serialize(context, value.addr);
+	Serialize(context, value.size);
+	Serialize(context, value.offset);
+	Serialize(context, value.align);
+	Serialize(context, value.reloff);
+	Serialize(context, value.nreloc);
+	Serialize(context, value.flags);
+	Serialize(context, value.reserved1);
+	Serialize(context, value.reserved2);
+	Serialize(context, value.reserved3);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<section_64>& b)
@@ -628,19 +421,18 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		sec.reserved1 = s2[9].GetUint();
 		sec.reserved2 = s2[10].GetUint();
 		sec.reserved3 = s2[11].GetUint();
-		b.push_back(sec);
+		b.push_back(std::move(sec));
 	}
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const linkedit_data_command& b)
+void Serialize(SerializationContext& context, const linkedit_data_command& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.dataoff, context.allocator);
-	bArr.PushBack(b.datasize, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.dataoff);
+	Serialize(context, value.datasize);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, linkedit_data_command& b)
@@ -652,25 +444,20 @@ void Deserialize(DeserializationContext& context, std::string_view name, linkedi
 	b.datasize = bArr[3].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const segment_command_64& b)
+void Serialize(SerializationContext& context, const segment_command_64& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	std::string segNameStr;
-	char segName[16];
-	memcpy(segName, b.segname, 16);
-	segName[15] = 0;
-	segNameStr = std::string(segName);
-	bArr.PushBack(rapidjson::Value(segNameStr.c_str(), context.allocator), context.allocator);
-	bArr.PushBack(b.vmaddr, context.allocator);
-	bArr.PushBack(b.vmsize, context.allocator);
-	bArr.PushBack(b.fileoff, context.allocator);
-	bArr.PushBack(b.filesize, context.allocator);
-	bArr.PushBack(b.maxprot, context.allocator);
-	bArr.PushBack(b.initprot, context.allocator);
-	bArr.PushBack(b.nsects, context.allocator);
-	bArr.PushBack(b.flags, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	std::string_view segname(value.segname, 16);
+	Serialize(context, segname.substr(0, segname.find('\0')));
+	Serialize(context, value.vmaddr);
+	Serialize(context, value.vmsize);
+	Serialize(context, value.fileoff);
+	Serialize(context, value.filesize);
+	Serialize(context, value.maxprot);
+	Serialize(context, value.initprot);
+	Serialize(context, value.nsects);
+	Serialize(context, value.flags);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, segment_command_64& b)
@@ -687,33 +474,6 @@ void Deserialize(DeserializationContext& context, std::string_view name, segment
 	b.initprot = bArr[6].GetUint();
 	b.nsects = bArr[7].GetUint();
 	b.flags = bArr[8].GetUint();
-}
-
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<segment_command_64>& b)
-{
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& s : b)
-	{
-		rapidjson::Value sArr(rapidjson::kArrayType);
-		std::string segNameStr;
-		char segName[16];
-		memcpy(segName, s.segname, 16);
-		segName[15] = 0;
-		segNameStr = std::string(segName);
-		sArr.PushBack(
-			rapidjson::Value(segNameStr.c_str(), context.allocator), context.allocator);
-		sArr.PushBack(s.vmaddr, context.allocator);
-		sArr.PushBack(s.vmsize, context.allocator);
-		sArr.PushBack(s.fileoff, context.allocator);
-		sArr.PushBack(s.filesize, context.allocator);
-		sArr.PushBack(s.maxprot, context.allocator);
-		sArr.PushBack(s.initprot, context.allocator);
-		sArr.PushBack(s.nsects, context.allocator);
-		sArr.PushBack(s.flags, context.allocator);
-		bArr.PushBack(sArr, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<segment_command_64>& b)
@@ -734,21 +494,20 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		sec.initprot = s2[6].GetUint();
 		sec.nsects = s2[7].GetUint();
 		sec.flags = s2[8].GetUint();
-		b.push_back(sec);
+		b.push_back(std::move(sec));
 	}
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const build_version_command& b)
+void Serialize(SerializationContext& context, const build_version_command& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	bArr.PushBack(b.cmd, context.allocator);
-	bArr.PushBack(b.cmdsize, context.allocator);
-	bArr.PushBack(b.platform, context.allocator);
-	bArr.PushBack(b.minos, context.allocator);
-	bArr.PushBack(b.sdk, context.allocator);
-	bArr.PushBack(b.ntools, context.allocator);
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.cmd);
+	Serialize(context, value.cmdsize);
+	Serialize(context, value.platform);
+	Serialize(context, value.minos);
+	Serialize(context, value.sdk);
+	Serialize(context, value.ntools);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, build_version_command& b)
@@ -762,18 +521,12 @@ void Deserialize(DeserializationContext& context, std::string_view name, build_v
 	b.ntools = bArr[5].GetUint();
 }
 
-void Serialize(SerializationContext& context, std::string_view name, const std::vector<build_tool_version>& b)
+void Serialize(SerializationContext& context, const build_tool_version& value)
 {
-	rapidjson::Value key(name.data(), context.allocator);
-	rapidjson::Value bArr(rapidjson::kArrayType);
-	for (auto& s : b)
-	{
-		rapidjson::Value sArr(rapidjson::kArrayType);
-		sArr.PushBack(s.tool, context.allocator);
-		sArr.PushBack(s.version, context.allocator);
-		bArr.PushBack(sArr, context.allocator);
-	}
-	context.doc.AddMember(key, bArr, context.allocator);
+	context.writer.StartArray();
+	Serialize(context, value.tool);
+	Serialize(context, value.version);
+	context.writer.EndArray();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<build_tool_version>& b)
@@ -788,6 +541,5 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		b.push_back(sec);
 	}
 }
-
 
 } // namespace SharedCacheCore

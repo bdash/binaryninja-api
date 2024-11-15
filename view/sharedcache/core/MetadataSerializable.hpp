@@ -58,12 +58,10 @@ using namespace BinaryNinja;
 struct DeserializationContext;
 
 struct SerializationContext {
-	rapidjson::Document doc;
-	rapidjson::Document::AllocatorType allocator;
+	rapidjson::StringBuffer buffer;
+	rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
 
-	SerializationContext() {
-		doc.SetObject();
-		allocator = doc.GetAllocator();
+	SerializationContext() : buffer(), writer(buffer) {
 	}
 
 	template <typename T>
@@ -91,17 +89,10 @@ class MetadataSerializable
 public:
 	std::string AsString() const
 	{
-		rapidjson::StringBuffer strbuf;
-		rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
-		AsDocument().Accept(writer);
-
-		return strbuf.GetString();
-	}
-
-	rapidjson::Document AsDocument() const {
 		SerializationContext context;
-		AsDerived().Store(context);
-		return std::move(context.doc);
+		Store(context);
+
+		return context.buffer.GetString();
 	}
 
 	void LoadFromString(const std::string& s)
@@ -118,7 +109,9 @@ public:
 		AsDerived().Load(context);
 	}
 
-	Ref<Metadata> AsMetadata() { return new Metadata(AsString()); }
+	Ref<Metadata> AsMetadata() {
+		return new Metadata(AsString());
+	}
 
 	bool LoadFromMetadata(const Ref<Metadata>& meta)
 	{
@@ -128,79 +121,131 @@ public:
 		return true;
 	}
 
+	void Store(SerializationContext& context) const {
+		context.writer.StartObject();
+		AsDerived().Store(context);
+		context.writer.EndObject();
+	}
+
 private:
 	const Derived& AsDerived() const { return static_cast<const Derived&>(*this); }
 	Derived& AsDerived() { return static_cast<Derived&>(*this); }
 };
 
-// These are not part of the FFI API, but are exported so that sharedcacheui can use them.
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, bool b);
+// The functions below are not part of the FFI API, but are exported so they can be shared with sharedcacheui.
+
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view str);
+
+template <typename T>
+inline void Serialize(SerializationContext& context, const MetadataSerializable<T>& value)
+{
+	value.Store(context);
+}
+
+template <typename T>
+inline void Serialize(SerializationContext& context, std::string_view name, const T& value)
+{
+	Serialize(context, name);
+	Serialize(context, value);
+}
+
+template <typename First, typename Second>
+void Serialize(SerializationContext& context, const std::pair<First, Second>& value)
+{
+	context.writer.StartArray();
+	Serialize(context, value.first);
+	Serialize(context, value.second);
+	context.writer.EndArray();
+}
+
+template <typename K, typename V>
+void Serialize(SerializationContext& context, const std::map<K, V>& value)
+{
+	context.writer.StartArray();
+	for (auto& pair : value)
+	{
+		Serialize(context, pair);
+	}
+	context.writer.EndArray();
+}
+
+template <typename K, typename V>
+void Serialize(SerializationContext& context, const std::unordered_map<K, V>& value)
+{
+	context.writer.StartArray();
+	for (auto& pair : value)
+	{
+		Serialize(context, pair);
+	}
+	context.writer.EndArray();
+}
+
+template <typename T>
+void Serialize(SerializationContext& context, const std::vector<T>& values)
+{
+	context.writer.StartArray();
+	for (const auto& value : values)
+	{
+		Serialize(context, value);
+	}
+	context.writer.EndArray();
+}
+
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, const char*);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, bool b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, bool& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, uint8_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, uint8_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, uint8_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, uint16_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, uint16_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, uint16_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, uint32_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, uint32_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, uint32_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, uint64_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, uint64_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, uint64_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, int8_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int8_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int8_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, int16_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int16_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int16_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, int32_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int32_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int32_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, int64_t b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int64_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int64_t& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, std::string_view b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::string& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::map<uint64_t, std::string>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::map<uint64_t, std::string>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<uint64_t, std::string>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<std::string, std::string>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<uint64_t, std::string>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<uint64_t, uint64_t>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<uint64_t, uint64_t>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<std::string, std::unordered_map<uint64_t, uint64_t>>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<std::string, std::unordered_map<uint64_t, uint64_t>>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<std::string, std::string>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::string>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::string>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::pair<uint64_t, bool>>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, bool>>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::vector<uint64_t>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::vector<uint64_t>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::unordered_map<std::string, uint64_t>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<std::string, uint64_t>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view name, const std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::string>>>>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, std::vector<std::pair<uint64_t, std::string>>>>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const mach_header_64& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const mach_header_64& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, mach_header_64& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const symtab_command& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const symtab_command& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, symtab_command& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const dysymtab_command& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const dysymtab_command& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, dysymtab_command& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const dyld_info_command& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const dyld_info_command& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, dyld_info_command& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const routines_command_64& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const routines_command_64& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, routines_command_64& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const function_starts_command& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const function_starts_command& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, function_starts_command& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const std::vector<section_64>& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const section_64& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, std::vector<section_64>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const linkedit_data_command& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const linkedit_data_command& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, linkedit_data_command& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const segment_command_64& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const segment_command_64& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, segment_command_64& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const std::vector<segment_command_64>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, std::vector<segment_command_64>& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const build_version_command& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const build_version_command& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, build_version_command& b);
-SHAREDCACHE_FFI_API void Serialize(SerializationContext&, std::string_view name, const std::vector<build_tool_version>& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext&, const build_tool_version& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext&, std::string_view name, std::vector<build_tool_version>& b);
-
 
 } // namespace SharedCacheCore
 
