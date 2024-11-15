@@ -1367,11 +1367,15 @@ SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_
 	{
 		std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
 		try {
+			MutableState().viewState = DSCViewStateLoaded;
 			PerformInitialLoad();
 		}
 		catch (...)
 		{
 			m_logger->LogError("Failed to perform initial load of Shared Cache");
+
+			MutableState().viewState = DSCViewStateLoaded;
+			SaveToDSCView();
 		}
 
 		auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
@@ -1394,8 +1398,6 @@ SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_
 				}
 			}
 		}
-		MutableState().viewState = DSCViewStateLoaded;
-		SaveToDSCView();
 	}
 	else
 	{
@@ -1435,8 +1437,13 @@ std::optional<uint64_t> SharedCache::GetImageStart(std::string installName)
 	return {};
 }
 
-std::optional<SharedCacheMachOHeader> SharedCache::HeaderForAddress(uint64_t address)
+const SharedCacheMachOHeader* SharedCache::HeaderForAddress(uint64_t address)
 {
+	// It is very common for `HeaderForAddress` to be called with an address corresponding to a header.
+	if (auto it = State().headers.find(address)) {
+		return it;
+	}
+
 	// We _could_ mark each page with the image start? :grimacing emoji:
 	// But that'd require mapping pages :grimacing emoji: :grimacing emoji:
 	// There's not really any other hacks that could make this faster, that I can think of...
@@ -1446,11 +1453,12 @@ std::optional<SharedCacheMachOHeader> SharedCache::HeaderForAddress(uint64_t add
 		{
 			if (segment.vmaddr <= address && segment.vmaddr + segment.vmsize > address)
 			{
-				return header;
+				return &header;
 			}
 		}
 	}
-	return {};
+
+	return nullptr;
 }
 
 std::string SharedCache::NameForAddress(uint64_t address)

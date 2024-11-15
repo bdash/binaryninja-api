@@ -3,6 +3,7 @@
 //
 
 #include "sharedcacheapi.h"
+#include <string_view>
 
 namespace SharedCacheAPI {
 
@@ -20,9 +21,9 @@ namespace SharedCacheAPI {
 		return BNDSCViewFastGetBackingCacheCount(view->GetObject());
 	}
 
-	bool SharedCache::LoadImageWithInstallName(std::string installName)
+	bool SharedCache::LoadImageWithInstallName(std::string_view installName)
 	{
-		char* str = BNAllocString(installName.c_str());
+		char* str = BNAllocString(installName.data());
 		return BNDSCViewLoadImageWithInstallName(m_object, str);
 	}
 
@@ -46,6 +47,7 @@ namespace SharedCacheAPI {
 		}
 
 		std::vector<std::string> result;
+		result.reserve(count);
 		for (size_t i = 0; i < count; i++)
 		{
 			result.push_back(value[i]);
@@ -65,13 +67,14 @@ namespace SharedCacheAPI {
 		}
 
 		std::vector<DSCMemoryRegion> result;
+		result.reserve(count);
 		for (size_t i = 0; i < count; i++)
 		{
 			DSCMemoryRegion region;
 			region.vmAddress = value[i].vmAddress;
 			region.size = value[i].size;
 			region.prettyName = value[i].name;
-			result.push_back(region);
+			result.push_back(std::move(region));
 		}
 
 		BNDSCViewFreeLoadedRegions(value, count);
@@ -87,20 +90,22 @@ namespace SharedCacheAPI {
 		}
 
 		std::vector<BackingCache> result;
+		result.reserve(count);
 		for (size_t i = 0; i < count; i++)
 		{
 			BackingCache cache;
 			cache.path = value[i].path;
 			cache.isPrimary = value[i].isPrimary;
+			cache.mappings.reserve(value[i].mappingCount);
 			for (size_t j = 0; j < value[i].mappingCount; j++)
 			{
 				BackingCacheMapping mapping;
 				mapping.vmAddress = value[i].mappings[j].vmAddress;
 				mapping.size = value[i].mappings[j].size;
 				mapping.fileOffset = value[i].mappings[j].fileOffset;
-				cache.mappings.push_back(mapping);
+				cache.mappings.push_back(std::move(mapping));
 			}
-			result.push_back(cache);
+			result.push_back(std::move(cache));
 		}
 
 		BNDSCViewFreeBackingCaches(value, count);
@@ -117,11 +122,13 @@ namespace SharedCacheAPI {
 		}
 
 		std::vector<DSCImage> result;
+		result.reserve(count);
 		for (size_t i = 0; i < count; i++)
 		{
 			DSCImage img;
 			img.name = value[i].name;
 			img.headerAddress = value[i].headerAddress;
+			img.mappings.reserve(value[i].mappingCount);
 			for (size_t j = 0; j < value[i].mappingCount; j++)
 			{
 				DSCImageMemoryMapping mapping;
@@ -131,9 +138,9 @@ namespace SharedCacheAPI {
 				mapping.rawViewOffset = value[i].mappings[j].rawViewOffset;
 				mapping.size = value[i].mappings[j].size;
 				mapping.loaded = value[i].mappings[j].loaded;
-				img.mappings.push_back(mapping);
+				img.mappings.push_back(std::move(mapping));
 			}
-			result.push_back(img);
+			result.push_back(std::move(img));
 		}
 
 		BNDSCViewFreeAllImages(value, count);
@@ -150,13 +157,14 @@ namespace SharedCacheAPI {
 		}
 
 		std::vector<DSCSymbol> result;
+		result.reserve(count);
 		for (size_t i = 0; i < count; i++)
 		{
 			DSCSymbol sym;
 			sym.address = value[i].address;
 			sym.name = value[i].name;
 			sym.image = value[i].image;
-			result.push_back(sym);
+			result.push_back(std::move(sym));
 		}
 
 		BNDSCViewFreeSymbols(value, count);
@@ -183,9 +191,9 @@ namespace SharedCacheAPI {
 		return result;
 	}
 
-	std::optional<SharedCacheMachOHeader> SharedCache::GetMachOHeaderForImage(std::string name)
+	std::optional<SharedCacheMachOHeader> SharedCache::GetMachOHeaderForImage(std::string_view name)
 	{
-		char* str = BNAllocString(name.c_str());
+		char* str = BNAllocString(name.data());
 		char* outputStr = BNDSCViewGetImageHeaderForName(m_object, str);
 		if (outputStr == nullptr)
 			return {};

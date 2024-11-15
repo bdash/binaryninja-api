@@ -6,6 +6,7 @@
 #define SHAREDCACHE_VM_H
 #include <binaryninjaapi.h>
 #include <condition_variable>
+#include <unordered_map>
 
 void VMShutdown();
 
@@ -215,7 +216,7 @@ class VMReader;
 
 
 class VM {
-    std::map<size_t, PageMapping> m_map;
+    std::unordered_map<size_t, PageMapping> m_map;
     size_t m_pageSize;
     size_t m_pageSizeBits;
     bool m_safe;
