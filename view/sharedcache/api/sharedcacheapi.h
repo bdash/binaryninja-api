@@ -257,7 +257,7 @@ namespace SharedCacheAPI {
 		static BNDSCViewLoadProgress GetLoadProgress(Ref<BinaryView> view);
 		static uint64_t FastGetBackingCacheCount(Ref<BinaryView> view);
 
-		bool LoadImageWithInstallName(std::string installName);
+		bool LoadImageWithInstallName(std::string_view installName);
 		bool LoadSectionAtAddress(uint64_t addr);
 		bool LoadImageContainingAddress(uint64_t addr);
 		std::vector<std::string> GetAvailableImages();
@@ -270,7 +270,7 @@ namespace SharedCacheAPI {
 		std::vector<BackingCache> GetBackingCaches();
 		std::vector<DSCImage> GetImages();
 
-		std::optional<SharedCacheMachOHeader> GetMachOHeaderForImage(std::string name);
+		std::optional<SharedCacheMachOHeader> GetMachOHeaderForImage(std::string_view name);
 		std::optional<SharedCacheMachOHeader> GetMachOHeaderForAddress(uint64_t address);
 
 		std::vector<DSCMemoryRegion> GetLoadedMemoryRegions();

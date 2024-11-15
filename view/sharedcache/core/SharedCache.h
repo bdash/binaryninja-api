@@ -564,7 +564,7 @@ namespace SharedCacheCore {
 
 		void ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file);
 		std::optional<uint64_t> GetImageStart(std::string installName);
-		std::optional<SharedCacheMachOHeader> HeaderForAddress(uint64_t);
+		const SharedCacheMachOHeader* HeaderForAddress(uint64_t);
 		bool LoadImageWithInstallName(std::string installName);
 		bool LoadSectionAtAddress(uint64_t address);
 		bool LoadImageContainingAddress(uint64_t address);
