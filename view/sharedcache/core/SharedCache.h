@@ -570,11 +570,11 @@ namespace SharedCacheCore {
 
 		void ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file);
 		std::optional<uint64_t> GetImageStart(std::string installName);
-		std::optional<SharedCacheMachOHeader> HeaderForAddress(uint64_t);
-		bool LoadImageWithInstallName(std::string installName, bool skipObjC);
+		const SharedCacheMachOHeader* HeaderForAddress(uint64_t);
+		bool LoadImageWithInstallName(std::string_view installName, bool skipObjC);
 		bool LoadSectionAtAddress(uint64_t address);
 		bool LoadImageContainingAddress(uint64_t address, bool skipObjC);
-		void ProcessObjCSectionsForImageWithInstallName(std::string installName);
+		void ProcessObjCSectionsForImageWithInstallName(std::string_view installName);
 		void ProcessAllObjCSections();
 		std::string NameForAddress(uint64_t address);
 		std::string ImageNameForAddress(uint64_t address);
@@ -600,7 +600,7 @@ namespace SharedCacheCore {
 		virtual ~SharedCache();
 
 		std::optional<SharedCacheMachOHeader> LoadHeaderForAddress(
-			std::shared_ptr<VM> vm, uint64_t address, std::string installName);
+			std::shared_ptr<VM> vm, uint64_t address, std::string_view installName);
 		void InitializeHeader(
 			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, std::vector<MemoryRegion*> regionsToLoad);
 		void ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer,

@@ -6,6 +6,7 @@
 #define SHAREDCACHE_VM_H
 #include <binaryninjaapi.h>
 #include <condition_variable>
+#include <unordered_map>
 
 void VMShutdown();
 

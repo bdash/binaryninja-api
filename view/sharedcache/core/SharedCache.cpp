@@ -92,9 +92,9 @@ struct ViewSpecificMutexes {
 static std::unordered_map<uint64_t, ViewSpecificMutexes> viewSpecificMutexes;
 
 
-std::string base_name(std::string const& path)
+std::string base_name(std::string_view const& path)
 {
-	return path.substr(path.find_last_of("/\\") + 1);
+	return std::string(path.substr(path.find_last_of("/\\") + 1));
 }
 
 
@@ -1385,11 +1385,15 @@ SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_
 	{
 		std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
 		try {
+			MutableState().viewState = DSCViewStateLoaded;
 			PerformInitialLoad();
 		}
 		catch (...)
 		{
 			m_logger->LogError("Failed to perform initial load of Shared Cache");
+
+			MutableState().viewState = DSCViewStateLoaded;
+			SaveToDSCView();
 		}
 
 		auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
@@ -1412,8 +1416,6 @@ SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_
 				}
 			}
 		}
-		MutableState().viewState = DSCViewStateLoaded;
-		SaveToDSCView();
 	}
 	else
 	{
@@ -1452,8 +1454,13 @@ std::optional<uint64_t> SharedCache::GetImageStart(std::string installName)
 	return {};
 }
 
-std::optional<SharedCacheMachOHeader> SharedCache::HeaderForAddress(uint64_t address)
+const SharedCacheMachOHeader* SharedCache::HeaderForAddress(uint64_t address)
 {
+	// It is very common for `HeaderForAddress` to be called with an address corresponding to a header.
+	if (auto it = State().headers.find(address); it != State().headers.end()) {
+		return &it->second;
+	}
+
 	// We _could_ mark each page with the image start? :grimacing emoji:
 	// But that'd require mapping pages :grimacing emoji: :grimacing emoji:
 	// There's not really any other hacks that could make this faster, that I can think of...
@@ -1463,11 +1470,12 @@ std::optional<SharedCacheMachOHeader> SharedCache::HeaderForAddress(uint64_t add
 		{
 			if (segment.vmaddr <= address && segment.vmaddr + segment.vmsize > address)
 			{
-				return header;
+				return &header;
 			}
 		}
 	}
-	return {};
+
+	return nullptr;
 }
 
 std::string SharedCache::NameForAddress(uint64_t address)
@@ -1757,7 +1765,7 @@ static void ProcessObjCSectionsForImageWithName(std::string baseName, std::share
 	}
 }
 
-void SharedCache::ProcessObjCSectionsForImageWithInstallName(std::string installName)
+void SharedCache::ProcessObjCSectionsForImageWithInstallName(std::string_view installName)
 {
 	bool processCFStrings;
 	bool processObjCMetadata;
@@ -1802,7 +1810,7 @@ void SharedCache::ProcessAllObjCSections()
 	}
 }
 
-bool SharedCache::LoadImageWithInstallName(std::string installName, bool skipObjC)
+bool SharedCache::LoadImageWithInstallName(std::string_view installName, bool skipObjC)
 {
 	auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
 
@@ -1811,7 +1819,7 @@ bool SharedCache::LoadImageWithInstallName(std::string installName, bool skipObj
 	DeserializeFromRawView();
 	WillMutateState();
 
-	m_logger->LogInfo("Loading image %s", installName.c_str());
+	m_logger->LogInfo("Loading image %.*s", installName.size(), installName.data());
 
 	auto vm = GetVMMap();
 	CacheImage* targetImage = nullptr;
@@ -1876,7 +1884,7 @@ bool SharedCache::LoadImageWithInstallName(std::string installName, bool skipObj
 
 	if (regionsToLoad.empty())
 	{
-		m_logger->LogWarn("No regions to load for image %s", installName.c_str());
+		m_logger->LogWarn("No regions to load for image %.*s", installName.size(), installName.data());
 		return false;
 	}
 
@@ -1929,7 +1937,7 @@ bool SharedCache::LoadImageWithInstallName(std::string installName, bool skipObj
 	return true;
 }
 
-std::optional<SharedCacheMachOHeader> SharedCache::LoadHeaderForAddress(std::shared_ptr<VM> vm, uint64_t address, std::string installName)
+std::optional<SharedCacheMachOHeader> SharedCache::LoadHeaderForAddress(std::shared_ptr<VM> vm, uint64_t address, std::string_view installName)
 {
 	SharedCacheMachOHeader header;
 
