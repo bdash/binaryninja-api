@@ -3560,6 +3560,27 @@ void SharedCache::Store(SerializationContext& context) const
 	}
 	context.writer.EndArray();
 
+	Serialize(context, "symbolInfos");
+	context.writer.StartArray();
+	for (const auto& pair1 : State().symbolInfos)
+	{
+		context.writer.StartObject();
+		Serialize(context, "key", pair1.first);
+		Serialize(context, "value");
+		context.writer.StartArray();
+		for (const auto& pair2 : pair1.second)
+		{
+			context.writer.StartArray();
+			Serialize(context, pair2.first);
+			Serialize(context, pair2.second.first);
+			Serialize(context, pair2.second.second);
+			context.writer.EndArray();
+		}
+		context.writer.EndArray();
+		context.writer.EndObject();
+	}
+	context.writer.EndArray();
+
 	Serialize(context, "backingCaches", State().backingCaches);
 	Serialize(context, "stubIslands", State().stubIslandRegions);
 	Serialize(context, "images", State().images);
@@ -3620,12 +3641,12 @@ void SharedCache::Load(DeserializationContext& context)
 	for (auto& symbolInfo : context.doc["symbolInfos"].GetArray())
 	{
 		immer::vector_transient<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> symbolInfoVec;
-		for (auto& symbolInfoPair : symbolInfo.GetArray())
+		for (auto& symbolInfoPair : symbolInfo["value"].GetArray())
 		{
 			symbolInfoVec.push_back({symbolInfoPair[0].GetUint64(),
 				{(BNSymbolType)symbolInfoPair[1].GetUint(), symbolInfoPair[2].GetString()}});
 		}
-		symbolInfos.set(symbolInfo[0].GetUint64(), std::move(symbolInfoVec).persistent());
+		symbolInfos.set(symbolInfo["key"].GetUint64(), std::move(symbolInfoVec).persistent());
 	}
 	MutableState().symbolInfos = std::move(symbolInfos).persistent();
 
