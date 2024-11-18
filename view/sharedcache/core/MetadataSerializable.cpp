@@ -53,17 +53,17 @@ void Deserialize(DeserializationContext& context, std::string_view name, bool& b
 
 void Deserialize(DeserializationContext& context, std::string_view name, uint8_t& b)
 {
-	b = static_cast<uint8_t>(context.doc[name.data()].GetUint64());
+	b = static_cast<uint8_t>(context.doc[name.data()].GetUint());
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, uint16_t& b)
 {
-	b = static_cast<uint16_t>(context.doc[name.data()].GetUint64());
+	b = static_cast<uint16_t>(context.doc[name.data()].GetUint());
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, uint32_t& b)
 {
-	b = static_cast<uint32_t>(context.doc[name.data()].GetUint64());
+	b = static_cast<uint32_t>(context.doc[name.data()].GetUint());
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, uint64_t& b)
@@ -73,12 +73,12 @@ void Deserialize(DeserializationContext& context, std::string_view name, uint64_
 
 void Deserialize(DeserializationContext& context, std::string_view name, int8_t& b)
 {
-	b = context.doc[name.data()].GetInt64();
+	b = context.doc[name.data()].GetInt();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, int16_t& b)
 {
-	b = context.doc[name.data()].GetInt64();
+	b = context.doc[name.data()].GetInt();
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, int32_t& b)
