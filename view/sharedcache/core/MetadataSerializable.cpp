@@ -2,6 +2,9 @@
 
 namespace SharedCacheCore {
 
+#define DESERIALIZE_FIELD(field, container) \
+	field = container.Get<decltype(field)>();
+
 void Serialize(SerializationContext& context, std::string_view str) {
 	context.writer.String(str.data(), str.length());
 }
@@ -180,24 +183,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 	b = std::move(transient).persistent();
 }
 
-// Note: This flattens the pair into [first, second.first, second.second] with no nested arrays.
-void Serialize(SerializationContext& context, const std::pair<uint64_t, std::pair<uint64_t, uint64_t>>& value)
-{
-	context.writer.StartArray();
-	Serialize(context, value.first);
-	Serialize(context, value.second.first);
-	Serialize(context, value.second.second);
-	context.writer.EndArray();
-}
-
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b)
 {
 	for (auto& i : context.doc[name.data()].GetArray())
 	{
 		std::pair<uint64_t, std::pair<uint64_t, uint64_t>> j;
-		j.first = i.GetArray()[0].GetUint64();
-		j.second.first = i.GetArray()[1].GetUint64();
-		j.second.second = i.GetArray()[2].GetUint64();
+		DESERIALIZE_FIELD(j.first, i.GetArray()[0])
+		DESERIALIZE_FIELD(j.second.first, i.GetArray()[1].GetArray()[0])
+		DESERIALIZE_FIELD(j.second.second, i.GetArray()[1].GetArray()[1])
 		b.push_back(j);
 	}
 }
@@ -207,8 +200,8 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	for (auto& i : context.doc[name.data()].GetArray())
 	{
 		std::pair<uint64_t, bool> j;
-		j.first = i.GetArray()[0].GetUint64();
-		j.second = i.GetArray()[1].GetBool();
+		DESERIALIZE_FIELD(j.first, i.GetArray()[0])
+		DESERIALIZE_FIELD(j.second, i.GetArray()[1])
 		b.push_back(j);
 	}
 }
@@ -257,9 +250,9 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 	for (auto& i : context.doc[name.data()].GetArray())
 	{
 		std::pair<uint64_t, std::pair<uint64_t, uint64_t>> j;
-		j.first = i.GetArray()[0].GetUint64();
-		j.second.first = i.GetArray()[1].GetUint64();
-		j.second.second = i.GetArray()[2].GetUint64();
+		DESERIALIZE_FIELD(j.first, i.GetArray()[0])
+		DESERIALIZE_FIELD(j.second.first, i.GetArray()[1].GetArray()[0])
+		DESERIALIZE_FIELD(j.second.second, i.GetArray()[1].GetArray()[1])
 		transient.push_back(j);
 	}
 	b = std::move(transient).persistent();
@@ -271,8 +264,8 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 	for (auto& i : context.doc[name.data()].GetArray())
 	{
 		std::pair<uint64_t, bool> j;
-		j.first = i.GetArray()[0].GetUint64();
-		j.second = i.GetArray()[1].GetBool();
+		DESERIALIZE_FIELD(j.first, i.GetArray()[0])
+		DESERIALIZE_FIELD(j.second, i.GetArray()[1])
 		transient.push_back(j);
 	}
 	b = std::move(transient).persistent();
@@ -330,14 +323,14 @@ void Serialize(SerializationContext& context, const mach_header_64& value) {
 void Deserialize(DeserializationContext& context, std::string_view name, mach_header_64& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.magic = bArr[0].GetUint();
-	b.cputype = bArr[1].GetUint();
-	b.cpusubtype = bArr[2].GetUint();
-	b.filetype = bArr[3].GetUint();
-	b.ncmds = bArr[4].GetUint();
-	b.sizeofcmds = bArr[5].GetUint();
-	b.flags = bArr[6].GetUint();
-	b.reserved = bArr[7].GetUint();
+	DESERIALIZE_FIELD(b.magic, bArr[0])
+	DESERIALIZE_FIELD(b.cputype, bArr[1])
+	DESERIALIZE_FIELD(b.cpusubtype, bArr[2])
+	DESERIALIZE_FIELD(b.filetype, bArr[3])
+	DESERIALIZE_FIELD(b.ncmds, bArr[4])
+	DESERIALIZE_FIELD(b.sizeofcmds, bArr[5])
+	DESERIALIZE_FIELD(b.flags, bArr[6])
+	DESERIALIZE_FIELD(b.reserved, bArr[7])
 }
 
 void Serialize(SerializationContext& context, const symtab_command& value)
@@ -355,12 +348,12 @@ void Serialize(SerializationContext& context, const symtab_command& value)
 void Deserialize(DeserializationContext& context, std::string_view name, symtab_command& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.symoff = bArr[2].GetUint();
-	b.nsyms = bArr[3].GetUint();
-	b.stroff = bArr[4].GetUint();
-	b.strsize = bArr[5].GetUint();
+	DESERIALIZE_FIELD(b.cmd, bArr[0])
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.symoff, bArr[2])
+	DESERIALIZE_FIELD(b.nsyms, bArr[3])
+	DESERIALIZE_FIELD(b.stroff, bArr[4])
+	DESERIALIZE_FIELD(b.strsize, bArr[5])
 }
 
 void Serialize(SerializationContext& context, const dysymtab_command& value)
@@ -392,26 +385,26 @@ void Serialize(SerializationContext& context, const dysymtab_command& value)
 void Deserialize(DeserializationContext& context, std::string_view name, dysymtab_command& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.ilocalsym = bArr[2].GetUint();
-	b.nlocalsym = bArr[3].GetUint();
-	b.iextdefsym = bArr[4].GetUint();
-	b.nextdefsym = bArr[5].GetUint();
-	b.iundefsym = bArr[6].GetUint();
-	b.nundefsym = bArr[7].GetUint();
-	b.tocoff = bArr[8].GetUint();
-	b.ntoc = bArr[9].GetUint();
-	b.modtaboff = bArr[10].GetUint();
-	b.nmodtab = bArr[11].GetUint();
-	b.extrefsymoff = bArr[12].GetUint();
-	b.nextrefsyms = bArr[13].GetUint();
-	b.indirectsymoff = bArr[14].GetUint();
-	b.nindirectsyms = bArr[15].GetUint();
-	b.extreloff = bArr[16].GetUint();
-	b.nextrel = bArr[17].GetUint();
-	b.locreloff = bArr[18].GetUint();
-	b.nlocrel = bArr[19].GetUint();
+	b.cmd = bArr[0].Get<decltype(b.cmd)>();
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.ilocalsym, bArr[2])
+	DESERIALIZE_FIELD(b.nlocalsym, bArr[3])
+	DESERIALIZE_FIELD(b.iextdefsym, bArr[4])
+	DESERIALIZE_FIELD(b.nextdefsym, bArr[5])
+	DESERIALIZE_FIELD(b.iundefsym, bArr[6])
+	DESERIALIZE_FIELD(b.nundefsym, bArr[7])
+	DESERIALIZE_FIELD(b.tocoff, bArr[8])
+	DESERIALIZE_FIELD(b.ntoc, bArr[9])
+	DESERIALIZE_FIELD(b.modtaboff, bArr[10])
+	DESERIALIZE_FIELD(b.nmodtab, bArr[11])
+	DESERIALIZE_FIELD(b.extrefsymoff, bArr[12])
+	DESERIALIZE_FIELD(b.nextrefsyms, bArr[13])
+	DESERIALIZE_FIELD(b.indirectsymoff, bArr[14])
+	DESERIALIZE_FIELD(b.nindirectsyms, bArr[15])
+	DESERIALIZE_FIELD(b.extreloff, bArr[16])
+	DESERIALIZE_FIELD(b.nextrel, bArr[17])
+	DESERIALIZE_FIELD(b.locreloff, bArr[18])
+	DESERIALIZE_FIELD(b.nlocrel, bArr[19])
 }
 
 void Serialize(SerializationContext& context, const dyld_info_command& value)
@@ -435,18 +428,18 @@ void Serialize(SerializationContext& context, const dyld_info_command& value)
 void Deserialize(DeserializationContext& context, std::string_view name, dyld_info_command& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.rebase_off = bArr[2].GetUint();
-	b.rebase_size = bArr[3].GetUint();
-	b.bind_off = bArr[4].GetUint();
-	b.bind_size = bArr[5].GetUint();
-	b.weak_bind_off = bArr[6].GetUint();
-	b.weak_bind_size = bArr[7].GetUint();
-	b.lazy_bind_off = bArr[8].GetUint();
-	b.lazy_bind_size = bArr[9].GetUint();
-	b.export_off = bArr[10].GetUint();
-	b.export_size = bArr[11].GetUint();
+	DESERIALIZE_FIELD(b.cmd, bArr[0])
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.rebase_off, bArr[2])
+	DESERIALIZE_FIELD(b.rebase_size, bArr[3])
+	DESERIALIZE_FIELD(b.bind_off, bArr[4])
+	DESERIALIZE_FIELD(b.bind_size, bArr[5])
+	DESERIALIZE_FIELD(b.weak_bind_off, bArr[6])
+	DESERIALIZE_FIELD(b.weak_bind_size, bArr[7])
+	DESERIALIZE_FIELD(b.lazy_bind_off, bArr[8])
+	DESERIALIZE_FIELD(b.lazy_bind_size, bArr[9])
+	DESERIALIZE_FIELD(b.export_off, bArr[10])
+	DESERIALIZE_FIELD(b.export_size, bArr[11])
 }
 
 void Serialize(SerializationContext& context, const routines_command_64& value)
@@ -462,10 +455,10 @@ void Serialize(SerializationContext& context, const routines_command_64& value)
 void Deserialize(DeserializationContext& context, std::string_view name, routines_command_64& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.init_address = bArr[2].GetUint();
-	b.init_module = bArr[3].GetUint();
+	DESERIALIZE_FIELD(b.cmd, bArr[0])
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.init_address, bArr[2])
+	DESERIALIZE_FIELD(b.init_module, bArr[3])
 }
 
 void Serialize(SerializationContext& context, const function_starts_command& value)
@@ -481,10 +474,10 @@ void Serialize(SerializationContext& context, const function_starts_command& val
 void Deserialize(DeserializationContext& context, std::string_view name, function_starts_command& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.funcoff = bArr[2].GetUint();
-	b.funcsize = bArr[3].GetUint();
+	DESERIALIZE_FIELD(b.cmd, bArr[0])
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.funcoff, bArr[2])
+	DESERIALIZE_FIELD(b.funcsize, bArr[3])
 }
 
 void Serialize(SerializationContext& context, const section_64& value)
@@ -522,16 +515,16 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		std::string segNameStr = s2[1].GetString();
 		memset(sec.segname, 0, 16);
 		memcpy(sec.segname, segNameStr.c_str(), segNameStr.size());
-		sec.addr = s2[2].GetUint64();
-		sec.size = s2[3].GetUint64();
-		sec.offset = s2[4].GetUint();
-		sec.align = s2[5].GetUint();
-		sec.reloff = s2[6].GetUint();
-		sec.nreloc = s2[7].GetUint();
-		sec.flags = s2[8].GetUint();
-		sec.reserved1 = s2[9].GetUint();
-		sec.reserved2 = s2[10].GetUint();
-		sec.reserved3 = s2[11].GetUint();
+		DESERIALIZE_FIELD(sec.addr, s2[2])
+		DESERIALIZE_FIELD(sec.size, s2[3])
+		DESERIALIZE_FIELD(sec.offset, s2[4])
+		DESERIALIZE_FIELD(sec.align, s2[5])
+		DESERIALIZE_FIELD(sec.reloff, s2[6])
+		DESERIALIZE_FIELD(sec.nreloc, s2[7])
+		DESERIALIZE_FIELD(sec.flags, s2[8])
+		DESERIALIZE_FIELD(sec.reserved1, s2[9])
+		DESERIALIZE_FIELD(sec.reserved2, s2[10])
+		DESERIALIZE_FIELD(sec.reserved3, s2[11])
 		b.push_back(std::move(sec));
 	}
 }
@@ -550,16 +543,16 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 		std::string segNameStr = s2[1].GetString();
 		memset(sec.segname, 0, 16);
 		memcpy(sec.segname, segNameStr.c_str(), segNameStr.size());
-		sec.addr = s2[2].GetUint64();
-		sec.size = s2[3].GetUint64();
-		sec.offset = s2[4].GetUint();
-		sec.align = s2[5].GetUint();
-		sec.reloff = s2[6].GetUint();
-		sec.nreloc = s2[7].GetUint();
-		sec.flags = s2[8].GetUint();
-		sec.reserved1 = s2[9].GetUint();
-		sec.reserved2 = s2[10].GetUint();
-		sec.reserved3 = s2[11].GetUint();
+		DESERIALIZE_FIELD(sec.addr, s2[2])
+		DESERIALIZE_FIELD(sec.size, s2[3])
+		DESERIALIZE_FIELD(sec.offset, s2[4])
+		DESERIALIZE_FIELD(sec.align, s2[5])
+		DESERIALIZE_FIELD(sec.reloff, s2[6])
+		DESERIALIZE_FIELD(sec.nreloc, s2[7])
+		DESERIALIZE_FIELD(sec.flags, s2[8])
+		DESERIALIZE_FIELD(sec.reserved1, s2[9])
+		DESERIALIZE_FIELD(sec.reserved2, s2[10])
+		DESERIALIZE_FIELD(sec.reserved3, s2[11])
 		transient.push_back(std::move(sec));
 	}
 	b = std::move(transient).persistent();
@@ -578,10 +571,10 @@ void Serialize(SerializationContext& context, const linkedit_data_command& value
 void Deserialize(DeserializationContext& context, std::string_view name, linkedit_data_command& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.dataoff = bArr[2].GetUint();
-	b.datasize = bArr[3].GetUint();
+	DESERIALIZE_FIELD(b.cmd, bArr[0])
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.dataoff, bArr[2])
+	DESERIALIZE_FIELD(b.datasize, bArr[3])
 }
 
 void Serialize(SerializationContext& context, const segment_command_64& value)
@@ -606,14 +599,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, segment
 	std::string segNameStr = bArr[0].GetString();
 	memset(b.segname, 0, 16);
 	memcpy(b.segname, segNameStr.c_str(), segNameStr.size());
-	b.vmaddr = bArr[1].GetUint64();
-	b.vmsize = bArr[2].GetUint64();
-	b.fileoff = bArr[3].GetUint64();
-	b.filesize = bArr[4].GetUint64();
-	b.maxprot = bArr[5].GetUint();
-	b.initprot = bArr[6].GetUint();
-	b.nsects = bArr[7].GetUint();
-	b.flags = bArr[8].GetUint();
+	DESERIALIZE_FIELD(b.vmaddr, bArr[1])
+	DESERIALIZE_FIELD(b.vmsize, bArr[2])
+	DESERIALIZE_FIELD(b.fileoff, bArr[3])
+	DESERIALIZE_FIELD(b.filesize, bArr[4])
+	DESERIALIZE_FIELD(b.maxprot, bArr[5])
+	DESERIALIZE_FIELD(b.initprot, bArr[6])
+	DESERIALIZE_FIELD(b.nsects, bArr[7])
+	DESERIALIZE_FIELD(b.flags, bArr[8])
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<segment_command_64>& b)
@@ -626,14 +619,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		std::string segNameStr = s2[0].GetString();
 		memset(sec.segname, 0, 16);
 		memcpy(sec.segname, segNameStr.c_str(), segNameStr.size());
-		sec.vmaddr = s2[1].GetUint64();
-		sec.vmsize = s2[2].GetUint64();
-		sec.fileoff = s2[3].GetUint64();
-		sec.filesize = s2[4].GetUint64();
-		sec.maxprot = s2[5].GetUint();
-		sec.initprot = s2[6].GetUint();
-		sec.nsects = s2[7].GetUint();
-		sec.flags = s2[8].GetUint();
+		DESERIALIZE_FIELD(sec.vmaddr, s2[1])
+		DESERIALIZE_FIELD(sec.vmsize, s2[2])
+		DESERIALIZE_FIELD(sec.fileoff, s2[3])
+		DESERIALIZE_FIELD(sec.filesize, s2[4])
+		DESERIALIZE_FIELD(sec.maxprot, s2[5])
+		DESERIALIZE_FIELD(sec.initprot, s2[6])
+		DESERIALIZE_FIELD(sec.nsects, s2[7])
+		DESERIALIZE_FIELD(sec.flags, s2[8])
 		b.push_back(std::move(sec));
 	}
 }
@@ -649,14 +642,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 		std::string segNameStr = s2[0].GetString();
 		memset(sec.segname, 0, 16);
 		memcpy(sec.segname, segNameStr.c_str(), segNameStr.size());
-		sec.vmaddr = s2[1].GetUint64();
-		sec.vmsize = s2[2].GetUint64();
-		sec.fileoff = s2[3].GetUint64();
-		sec.filesize = s2[4].GetUint64();
-		sec.maxprot = s2[5].GetUint();
-		sec.initprot = s2[6].GetUint();
-		sec.nsects = s2[7].GetUint();
-		sec.flags = s2[8].GetUint();
+		DESERIALIZE_FIELD(sec.vmaddr, s2[1])
+		DESERIALIZE_FIELD(sec.vmsize, s2[2])
+		DESERIALIZE_FIELD(sec.fileoff, s2[3])
+		DESERIALIZE_FIELD(sec.filesize, s2[4])
+		DESERIALIZE_FIELD(sec.maxprot, s2[5])
+		DESERIALIZE_FIELD(sec.initprot, s2[6])
+		DESERIALIZE_FIELD(sec.nsects, s2[7])
+		DESERIALIZE_FIELD(sec.flags, s2[8])
 		transient.push_back(std::move(sec));
 	}
 	b = std::move(transient).persistent();
@@ -678,12 +671,12 @@ void Serialize(SerializationContext& context, const build_version_command& value
 void Deserialize(DeserializationContext& context, std::string_view name, build_version_command& b)
 {
 	auto bArr = context.doc[name.data()].GetArray();
-	b.cmd = bArr[0].GetUint();
-	b.cmdsize = bArr[1].GetUint();
-	b.platform = bArr[2].GetUint();
-	b.minos = bArr[3].GetUint();
-	b.sdk = bArr[4].GetUint();
-	b.ntools = bArr[5].GetUint();
+	DESERIALIZE_FIELD(b.cmd, bArr[0])
+	DESERIALIZE_FIELD(b.cmdsize, bArr[1])
+	DESERIALIZE_FIELD(b.platform, bArr[2])
+	DESERIALIZE_FIELD(b.minos, bArr[3])
+	DESERIALIZE_FIELD(b.sdk, bArr[4])
+	DESERIALIZE_FIELD(b.ntools, bArr[5])
 }
 
 void Serialize(SerializationContext& context, const build_tool_version& value)
@@ -701,8 +694,8 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	{
 		build_tool_version sec;
 		auto s2 = s.GetArray();
-		sec.tool = s2[0].GetUint();
-		sec.version = s2[1].GetUint();
+		DESERIALIZE_FIELD(sec.tool, s2[0])
+		DESERIALIZE_FIELD(sec.version, s2[1])
 		b.push_back(sec);
 	}
 }
@@ -715,11 +708,13 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 	{
 		build_tool_version sec;
 		auto s2 = s.GetArray();
-		sec.tool = s2[0].GetUint();
-		sec.version = s2[1].GetUint();
+		DESERIALIZE_FIELD(sec.tool, s2[0])
+		DESERIALIZE_FIELD(sec.version, s2[1])
 		transient.push_back(sec);
 	}
 	b = std::move(transient).persistent();
 }
+
+#undef DESERIALIZE_FIELD
 
 } // namespace SharedCacheCore
