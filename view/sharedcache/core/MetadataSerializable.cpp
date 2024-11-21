@@ -206,8 +206,11 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 void Serialize(SerializationContext& context, const mach_header_64& value) {
 	context.writer.StartArray();
 	Serialize(context, value.magic);
-	Serialize(context, value.cputype);
-	Serialize(context, value.cpusubtype);
+	// cputype and cpusubtype are signed but were serialized as unsigned in
+	// v4.2 (metadata version 2). We continue serializing them as unsigned
+	// so we don't need to bump the metadata version.
+	Serialize(context, static_cast<uint32_t>(value.cputype));
+	Serialize(context, static_cast<uint32_t>(value.cpusubtype));
 	Serialize(context, value.filetype);
 	Serialize(context, value.ncmds);
 	Serialize(context, value.sizeofcmds);

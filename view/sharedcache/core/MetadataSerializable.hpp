@@ -211,6 +211,7 @@ SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::strin
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int64_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int64_t& b);
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, const std::pair<uint64_t, std::pair<uint64_t, uint64_t>>& value);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::string& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::map<uint64_t, std::string>& b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::unordered_map<uint64_t, std::string>& b);
