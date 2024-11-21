@@ -976,6 +976,27 @@ namespace SharedCacheCore {
 			}
 			m_activeContext.doc.AddMember("exportInfos", exportInfos, m_activeContext.allocator);
 
+			rapidjson::Document symbolInfos(rapidjson::kArrayType);
+			for (const auto& pair1 : m_symbolInfos)
+			{
+				rapidjson::Value subObj(rapidjson::kObjectType);
+				rapidjson::Value subArr(rapidjson::kArrayType);
+				for (const auto& pair2 : pair1.second)
+				{
+					rapidjson::Value subSubArr(rapidjson::kArrayType);
+					subSubArr.PushBack(pair2.first, m_activeContext.allocator);
+					subSubArr.PushBack(pair2.second.first, m_activeContext.allocator);
+					subSubArr.PushBack(pair2.second.second, m_activeContext.allocator);
+					subArr.PushBack(subSubArr, m_activeContext.allocator);
+				}
+
+				subObj.AddMember("key", pair1.first, m_activeContext.allocator);
+				subObj.AddMember("value", subArr, m_activeContext.allocator);
+
+				symbolInfos.PushBack(subObj, m_activeContext.allocator);
+			}
+			m_activeContext.doc.AddMember("symbolInfos", symbolInfos, m_activeContext.allocator);
+
 			rapidjson::Value backingCaches(rapidjson::kArrayType);
 			for (auto bc : m_backingCaches)
 			{
@@ -1055,12 +1076,12 @@ namespace SharedCacheCore {
 			for (auto& symbolInfo : m_activeDeserContext.doc["symbolInfos"].GetArray())
 			{
 				std::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> symbolInfoVec;
-				for (auto& symbolInfoPair : symbolInfo.GetArray())
+				for (auto& symbolInfoPair : symbolInfo["value"].GetArray())
 				{
 					symbolInfoVec.push_back({symbolInfoPair[0].GetUint64(),
 						{(BNSymbolType)symbolInfoPair[1].GetUint(), symbolInfoPair[2].GetString()}});
 				}
-				m_symbolInfos[symbolInfo[0].GetUint64()] = symbolInfoVec;
+				m_symbolInfos[symbolInfo["key"].GetUint64()] = symbolInfoVec;
 			}
 			m_backingCaches.clear();
 			for (auto& bcV : m_activeDeserContext.doc["backingCaches"].GetArray())
