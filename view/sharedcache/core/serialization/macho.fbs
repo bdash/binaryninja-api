@@ -1,0 +1,131 @@
+namespace serialization;
+
+struct mach_header_64 {
+	magic:	uint32;
+	cputype:	int32;
+	cpusubtype:	int32;
+	filetype:	uint32;
+	ncmds:	uint32;
+	sizeofcmds:	uint32;
+	flags:	uint32;
+	reserved:	uint32;
+}
+
+table section_64 { 			// for 64-bit architectures
+	sectname: string;			// name of this section
+	segname:  string;			// segment this section goes in
+	addr:	uint64;			// memory address of this section
+	size:	uint64;			// size in bytes of this section
+	offset:	uint32;			// file offset of this section
+	align:	uint32;			// section alignment (power of 2)
+	reloff:	uint32;			// file offset of relocation entries
+	nreloc:	uint32;			// number of relocation entries
+	flags:	uint32;			// flags (section type and attributes)
+	reserved1:	uint32;		// reserved (for offset or index)
+	reserved2:	uint32;		// reserved (for count or sizeof)
+	reserved3:	uint32;		// reserved
+}
+
+table segment_command_64 {
+	cmd:	uint32;
+	cmdsize:	uint32;
+	segname: string;
+	vmaddr:	uint64;
+	vmsize:	uint64;
+	fileoff:	uint64;
+	filesize:	uint64;
+	maxprot:	int;
+	initprot:	int;
+	nsects:	uint32;
+	flags:	uint32;
+}
+
+struct linkedit_data_command {
+	cmd: uint32;
+	cmdsize: uint32;
+	dataoff: uint32;
+	datasize: uint32;
+}
+
+struct routines_command_64 { 	// for 64-bit architectures
+	cmd:	uint32;			// LC_ROUTINES_64
+	cmdsize:	uint32;		// total size of this command
+	init_address:	uint64;	// address of initialization routine
+	init_module:	uint64;	// index into the module table that the init routine is defined in
+	reserved1:	uint64;
+	reserved2:	uint64;
+	reserved3:	uint64;
+	reserved4:	uint64;
+	reserved5:	uint64;
+	reserved6:	uint64;
+}
+
+struct symtab_command {
+	cmd:	uint32;		// LC_SYMTAB
+	cmdsize:	uint32;	// sizeof(struct symtab_command)
+	symoff:	uint32;		// symbol table offset
+	nsyms:	uint32;		// number of symbol table entries
+	stroff:	uint32;		// string table offset
+	strsize:	uint32;	// string table size in bytes
+}
+
+// Lots of good information on how to use dysymtab for relocations
+// https://opensource.apple.com/source/cctools/cctools-795/include/mach-o/loader.h
+struct dysymtab_command {
+	cmd: uint32;			// LC_DYSYMTAB
+	cmdsize: uint32;		// sizeof(struct dysymtab_command)
+	ilocalsym: uint32;		// index to local symbols
+	nlocalsym: uint32;		// number of local symbols
+	iextdefsym: uint32;	// index to externally defined symbols
+	nextdefsym: uint32;	// number of externally defined symbols
+	iundefsym: uint32;		// index to undefined symbols
+	nundefsym: uint32;		// number of undefined symbols
+	tocoff: uint32;		// file offset to table of contents
+	ntoc: uint32;			// number of entries in table of contents
+	modtaboff: uint32;		// file offset to module table
+	nmodtab: uint32;		// number of module table entries
+	extrefsymoff: uint32;	// offset to referenced symbol table
+	nextrefsyms: uint32;	// number of referenced symbol table entries
+	indirectsymoff: uint32; // file offset to the indirect symbol table
+	nindirectsyms: uint32;  // number of indirect symbol table entries
+	extreloff: uint32;		// offset to external relocation entries
+	nextrel: uint32;		// number of external relocation entries
+	locreloff: uint32;		// offset to local relocation entries
+	nlocrel: uint32;		// number of local relocation entries
+}
+
+struct dyld_info_command {
+	cmd:   uint32;				// LC_DYLD_INFO or LC_DYLD_INFO_ONLY
+	cmdsize:   uint32;			// sizeof(struct dyld_info_command)
+	rebase_off:   uint32;		// file offset to rebase info
+	rebase_size:   uint32;		// size of rebase info
+	bind_off:   uint32;		// file offset to binding info
+	bind_size:   uint32;		// size of binding info
+	weak_bind_off:   uint32;	// file offset to weak binding info
+	weak_bind_size:   uint32;  // size of weak binding info
+	lazy_bind_off:   uint32;	// file offset to lazy binding info
+	lazy_bind_size:   uint32;  // size of lazy binding infs
+	export_off:   uint32;		// file offset to lazy binding info
+	export_size:   uint32;		// size of lazy binding infs
+}
+
+struct function_starts_command {
+	cmd: uint32;		//LC_FUNCTION_STARTS
+	cmdsize: uint32;   //sizeof(struct function_starts_command)
+	funcoff: uint32;   //offset to function starts list
+	funcsize: uint32;  //sizeof function starts list
+}
+
+struct build_tool_version {
+	tool: uint32;
+	version: uint32;
+}
+
+struct build_version_command {
+	cmd: uint32;       // LC_BUILD_VERSION
+	cmdsize: uint32;   // sizeof(build_version_command) + (ntools * sizeof(build_tool_version)
+	platform: uint32;  // MachoPlatform
+	minos: uint32;     // X.Y.Z is encoded in nibbles xxxx.yy.zz
+	sdk: uint32;       // X.Y.Z is encoded in nibbles xxxx.yy.zz
+	ntools: uint32;    // number build_tool_version entries
+}

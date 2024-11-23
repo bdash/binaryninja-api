@@ -72,12 +72,16 @@ else()
     message(FATAL_ERROR "No metadata version provided. Fatal.")
 endif()
 
-target_compile_definitions(sharedcachecore PRIVATE ${COMPILE_DEFS})
+add_subdirectory(${BN_API_PATH}/vendor/flatbuffers ${BN_API_PATH}/vendor/flatbuffers/build EXCLUDE_FROM_ALL)
 
+build_flatbuffers("serialization/shared_cache.fbs;serialization/macho.fbs" . serialization "" ${CMAKE_CURRENT_BINARY_DIR}/serialization "" "")
+
+target_compile_definitions(sharedcachecore PRIVATE ${COMPILE_DEFS})
 
 target_compile_definitions(sharedcachecore PRIVATE SHAREDCACHE_LIBRARY ${COMPILE_DEFS})
 
-target_include_directories(sharedcachecore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer)
+target_include_directories(sharedcachecore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer serialization ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(sharedcachecore PUBLIC ${BN_API_PATH}/vendor/flatbuffers/include)
 
 set_target_properties(sharedcachecore PROPERTIES
         CXX_STANDARD 17
@@ -100,4 +104,4 @@ set_target_properties(sharedcachecore PROPERTIES
 
 target_compile_definitions(sharedcachecore PRIVATE SHAREDCACHE_CORE_LIBRARY)
 
-
+add_dependencies(sharedcachecore serialization)

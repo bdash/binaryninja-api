@@ -1,0 +1,92 @@
+include "macho.fbs";
+
+namespace serialization;
+
+struct Entrypoint {
+	first: uint64;
+	second: bool;
+}
+
+table SharedCacheMachOHeader {
+	textBase: uint64 = 0;
+	loadCommandOffset: uint64 = 0;
+	ident: mach_header_64;
+	identifierPrefix: string;
+	installName: string;
+
+	entrypoints: [Entrypoint];
+	m_entryPoints: [uint64];
+
+	symtab: symtab_command;
+	dysymtab: dysymtab_command;
+	dyldInfo: dyld_info_command;
+	routines64: routines_command_64;
+	functionStarts: function_starts_command;
+	moduleInitSections: [section_64];
+	exportTrie: linkedit_data_command;
+	chainedFixups: linkedit_data_command;
+
+	relocationBase: uint64;
+	// Section and program headers, internally use 64-bit form as it is a superset of 32-bit
+	segments: [segment_command_64];
+	linkeditSegment: segment_command_64;
+	sections: [section_64];
+	sectionNames: [string];
+
+	symbolStubSections: [section_64];
+	symbolPointerSections: [section_64];
+
+	dylibs: [string];
+
+	buildVersion: build_version_command;
+	buildToolVersions: [build_tool_version];
+
+	exportTriePath: string;
+
+	linkeditPresent: bool = false;
+	dysymPresent: bool = false;
+	dyldInfoPresent: bool = false;
+	exportTriePresent: bool = false;
+	chainedFixupsPresent: bool = false;
+	routinesPresent: bool = false;
+	functionStartsPresent: bool = false;
+	relocatable: bool = false;
+}
+
+table ImageStart {
+	imageName: string;
+	start: uint64;
+}
+
+enum ViewState: uint16 {
+
+}
+
+enum SharedCacheFormat: uint16 {
+
+}
+
+table SharedCache {
+	viewState: ViewState;
+	cacheFormat: SharedCacheFormat;
+	imageStarts: [ImageStart];
+	baseFilePath: string;
+	headers: [HeaderOffsetAndHeader];
+	exportInfos: [ExportInfoKeyValue];
+}
+
+table HeaderOffsetAndHeader {
+	offset: uint64;
+	header: SharedCacheMachOHeader;
+}
+
+table ExportInfoKeyValue {
+	key: uint64;
+	value: [ExportInfo];
+}
+
+table ExportInfo {
+	first: uint64;
+	symbol_type: uint8;
+	name: string;
+}

@@ -44,6 +44,9 @@
 #include "immer/vector.hpp" 
 #include "immer/vector_transient.hpp" 
 #include "immer/map_transient.hpp" 
+#include "flatbuffers/flexbuffers.h"
+#include <cstdint>
+#include <sys/types.h>
 
 #ifndef SHAREDCACHE_CORE_METADATASERIALIZABLE_HPP
 #define SHAREDCACHE_CORE_METADATASERIALIZABLE_HPP
@@ -62,11 +65,14 @@ using namespace BinaryNinja;
 struct DeserializationContext;
 
 struct SerializationContext {
-	rapidjson::StringBuffer buffer;
-	rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
+	// rapidjson::StringBuffer buffer;
+	// rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
+	flexbuffers::Builder builder; // { 256, flexbuffers::BUILDER_FLAG_SHARE_ALL};
 
-	SerializationContext() : buffer(), writer(buffer) {
-	}
+	explicit SerializationContext(size_t size) : builder(size) {}
+
+	// SerializationContext() : buffer(), writer(buffer), builder() {
+	// }
 
 	template <typename T>
 	void store(std::string_view x, const T& y)
@@ -91,19 +97,33 @@ template <typename Derived>
 class MetadataSerializable
 {
 public:
-	std::string AsString() const
-	{
-		SerializationContext context;
+	std::vector<uint8_t> AsBytes() const {
+		SerializationContext context(EstimatedSize());
 		Store(context);
+		context.builder.Finish();
 
-		return context.buffer.GetString();
+		// fprintf(stderr, "AsBytes() -> %zu bytes\n", context.builder.GetSize());
+		// TODO: Does this really force a copy?!
+		return context.builder.GetBuffer();
 	}
 
-	void LoadFromString(const std::string& s)
-	{
+	// void LoadFromString(const std::string& s)
+	// {
+	// 	DeserializationContext context;
+	// 	context.doc.Parse(s.c_str());
+	// 	AsDerived().Load(context);
+	// }
+
+	void LoadFromRaw(const std::vector<uint8_t>& raw) {
 		DeserializationContext context;
-		context.doc.Parse(s.c_str());
-		AsDerived().Load(context);
+		// context.doc.Parse(s.c_str());
+		// AsDerived().Load(context);
+	}
+
+	void LoadFromDataBuffer(DataBuffer buffer) {
+		DeserializationContext context;
+		// context.doc.Parse(s.c_str());
+		// AsDerived().Load(context);
 	}
 
 	void LoadFromValue(rapidjson::Value& s)
@@ -114,21 +134,25 @@ public:
 	}
 
 	Ref<Metadata> AsMetadata() {
-		return new Metadata(AsString());
+		return new Metadata(AsBytes());
 	}
 
 	bool LoadFromMetadata(const Ref<Metadata>& meta)
 	{
-		if (!meta->IsString())
+		if (!meta->IsRaw())
 			return false;
-		LoadFromString(meta->GetString());
+		LoadFromRaw(meta->GetRaw());
 		return true;
 	}
 
 	void Store(SerializationContext& context) const {
-		context.writer.StartObject();
-		AsDerived().Store(context);
-		context.writer.EndObject();
+		context.builder.Map([&]{
+			AsDerived().Store(context);
+		});
+	}
+
+	size_t EstimatedSize() const {
+		return AsDerived().EstimatedSize();
 	}
 
 private:
@@ -149,72 +173,72 @@ inline void Serialize(SerializationContext& context, const MetadataSerializable<
 template <typename T>
 inline void Serialize(SerializationContext& context, std::string_view name, const T& value)
 {
-	Serialize(context, name);
+	context.builder.Key(name.data(), name.length());
 	Serialize(context, value);
 }
 
 template <typename First, typename Second>
 void Serialize(SerializationContext& context, const std::pair<First, Second>& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.first);
-	Serialize(context, value.second);
-	context.writer.EndArray();
+	context.builder.Vector([&]{
+		Serialize(context, value.first);
+		Serialize(context, value.second);
+	});
 }
 
 template <typename K, typename V>
 void Serialize(SerializationContext& context, const std::map<K, V>& value)
 {
-	context.writer.StartArray();
-	for (auto& pair : value)
-	{
-		Serialize(context, pair);
-	}
-	context.writer.EndArray();
+	context.builder.TypedVector([&]{
+		for (auto& pair : value)
+		{
+			Serialize(context, pair);
+		}
+	});
 }
 
 template <typename K, typename V>
 void Serialize(SerializationContext& context, const std::unordered_map<K, V>& value)
 {
-	context.writer.StartArray();
-	for (auto& pair : value)
-	{
-		Serialize(context, pair);
-	}
-	context.writer.EndArray();
+	context.builder.TypedVector([&]{
+		for (auto& pair : value)
+		{
+			Serialize(context, pair);
+		}
+	});
 }
 
 template <typename T>
 void Serialize(SerializationContext& context, const std::vector<T>& values)
 {
-	context.writer.StartArray();
-	for (const auto& value : values)
-	{
-		Serialize(context, value);
-	}
-	context.writer.EndArray();
+	context.builder.TypedVector([&]{
+		for (const auto& value : values)
+		{
+			Serialize(context, value);
+		}
+	});
 }
 
 template <typename K, typename V>
 void Serialize(SerializationContext& context, const immer::map<K, V>& value)
 {
-	context.writer.StartArray();
-	for (auto& pair : value)
-	{
-		Serialize(context, pair);
-	}
-	context.writer.EndArray();
+	context.builder.TypedVector([&]{
+		for (auto& pair : value)
+		{
+			Serialize(context, pair);
+		}
+	});
 }
 
 template <typename T>
 void Serialize(SerializationContext& context, const immer::vector<T>& values)
 {
-	context.writer.StartArray();
-	for (const auto& value : values)
-	{
-		Serialize(context, value);
-	}
-	context.writer.EndArray();
+	context.builder.TypedVector([&]{
+		for (const auto& value : values)
+		{
+			Serialize(context, value);
+		}
+	});
 }
 
 

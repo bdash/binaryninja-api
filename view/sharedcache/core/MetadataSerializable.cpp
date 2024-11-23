@@ -3,7 +3,7 @@
 namespace SharedCacheCore {
 
 void Serialize(SerializationContext& context, std::string_view str) {
-	context.writer.String(str.data(), str.length());
+	context.builder.String(str.data(), str.length());
 }
 
 void Serialize(SerializationContext& context, const char* value) {
@@ -12,39 +12,39 @@ void Serialize(SerializationContext& context, const char* value) {
 
 void Serialize(SerializationContext& context, bool b)
 {
-	context.writer.Bool(b);
+	context.builder.Bool(b);
 }
 
 void Serialize(SerializationContext& context, int8_t value) {
-	context.writer.Int(value);
+	context.builder.Int(value);
 }
 
 void Serialize(SerializationContext& context, uint8_t value) {
-	context.writer.Uint(value);
+	context.builder.UInt(value);
 }
 
 void Serialize(SerializationContext& context, int16_t value) {
-	context.writer.Int(value);
+	context.builder.Int(value);
 }
 
 void Serialize(SerializationContext& context, uint16_t value) {
-	context.writer.Uint(value);
+	context.builder.UInt(value);
 }
 
 void Serialize(SerializationContext& context, int32_t value) {
-	context.writer.Int(value);
+	context.builder.Int(value);
 }
 
 void Serialize(SerializationContext& context, uint32_t value) {
-	context.writer.Uint(value);
+	context.builder.UInt(value);
 }
 
 void Serialize(SerializationContext& context, int64_t value) {
-	context.writer.Int64(value);
+	context.builder.Int(value);
 }
 
 void Serialize(SerializationContext& context, uint64_t value) {
-	context.writer.Uint64(value);
+	context.builder.UInt(value);
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, bool& b) {
@@ -183,11 +183,11 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 // Note: This flattens the pair into [first, second.first, second.second] with no nested arrays.
 void Serialize(SerializationContext& context, const std::pair<uint64_t, std::pair<uint64_t, uint64_t>>& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.first);
-	Serialize(context, value.second.first);
-	Serialize(context, value.second.second);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.first);
+		Serialize(context, value.second.first);
+		Serialize(context, value.second.second);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b)
@@ -315,19 +315,19 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 }
 
 void Serialize(SerializationContext& context, const mach_header_64& value) {
-	context.writer.StartArray();
-	Serialize(context, value.magic);
-	// cputype and cpusubtype are signed but were serialized as unsigned in
-	// v4.2 (metadata version 2). We continue serializing them as unsigned
-	// so we don't need to bump the metadata version.
-	Serialize(context, static_cast<uint32_t>(value.cputype));
-	Serialize(context, static_cast<uint32_t>(value.cpusubtype));
-	Serialize(context, value.filetype);
-	Serialize(context, value.ncmds);
-	Serialize(context, value.sizeofcmds);
-	Serialize(context, value.flags);
-	Serialize(context, value.reserved);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.magic);
+		// cputype and cpusubtype are signed but were serialized as unsigned in
+		// v4.2 (metadata version 2). We continue serializing them as unsigned
+		// so we don't need to bump the metadata version.
+		Serialize(context, static_cast<uint32_t>(value.cputype));
+		Serialize(context, static_cast<uint32_t>(value.cpusubtype));
+		Serialize(context, value.filetype);
+		Serialize(context, value.ncmds);
+		Serialize(context, value.sizeofcmds);
+		Serialize(context, value.flags);
+		Serialize(context, value.reserved);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, mach_header_64& b)
@@ -345,14 +345,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, mach_he
 
 void Serialize(SerializationContext& context, const symtab_command& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.cmd);
-	Serialize(context, value.cmdsize);
-	Serialize(context, value.symoff);
-	Serialize(context, value.nsyms);
-	Serialize(context, value.stroff);
-	Serialize(context, value.strsize);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.cmd);
+		Serialize(context, value.cmdsize);
+		Serialize(context, value.symoff);
+		Serialize(context, value.nsyms);
+		Serialize(context, value.stroff);
+		Serialize(context, value.strsize);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, symtab_command& b)
@@ -368,28 +368,28 @@ void Deserialize(DeserializationContext& context, std::string_view name, symtab_
 
 void Serialize(SerializationContext& context, const dysymtab_command& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.cmd);
-	Serialize(context, value.cmdsize);
-	Serialize(context, value.ilocalsym);
-	Serialize(context, value.nlocalsym);
-	Serialize(context, value.iextdefsym);
-	Serialize(context, value.nextdefsym);
-	Serialize(context, value.iundefsym);
-	Serialize(context, value.nundefsym);
-	Serialize(context, value.tocoff);
-	Serialize(context, value.ntoc);
-	Serialize(context, value.modtaboff);
-	Serialize(context, value.nmodtab);
-	Serialize(context, value.extrefsymoff);
-	Serialize(context, value.nextrefsyms);
-	Serialize(context, value.indirectsymoff);
-	Serialize(context, value.nindirectsyms);
-	Serialize(context, value.extreloff);
-	Serialize(context, value.nextrel);
-	Serialize(context, value.locreloff);
-	Serialize(context, value.nlocrel);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.cmd);
+		Serialize(context, value.cmdsize);
+		Serialize(context, value.ilocalsym);
+		Serialize(context, value.nlocalsym);
+		Serialize(context, value.iextdefsym);
+		Serialize(context, value.nextdefsym);
+		Serialize(context, value.iundefsym);
+		Serialize(context, value.nundefsym);
+		Serialize(context, value.tocoff);
+		Serialize(context, value.ntoc);
+		Serialize(context, value.modtaboff);
+		Serialize(context, value.nmodtab);
+		Serialize(context, value.extrefsymoff);
+		Serialize(context, value.nextrefsyms);
+		Serialize(context, value.indirectsymoff);
+		Serialize(context, value.nindirectsyms);
+		Serialize(context, value.extreloff);
+		Serialize(context, value.nextrel);
+		Serialize(context, value.locreloff);
+		Serialize(context, value.nlocrel);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, dysymtab_command& b)
@@ -419,20 +419,20 @@ void Deserialize(DeserializationContext& context, std::string_view name, dysymta
 
 void Serialize(SerializationContext& context, const dyld_info_command& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.cmd);
-	Serialize(context, value.cmdsize);
-	Serialize(context, value.rebase_off);
-	Serialize(context, value.rebase_size);
-	Serialize(context, value.bind_off);
-	Serialize(context, value.bind_size);
-	Serialize(context, value.weak_bind_off);
-	Serialize(context, value.weak_bind_size);
-	Serialize(context, value.lazy_bind_off);
-	Serialize(context, value.lazy_bind_size);
-	Serialize(context, value.export_off);
-	Serialize(context, value.export_size);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.cmd);
+		Serialize(context, value.cmdsize);
+		Serialize(context, value.rebase_off);
+		Serialize(context, value.rebase_size);
+		Serialize(context, value.bind_off);
+		Serialize(context, value.bind_size);
+		Serialize(context, value.weak_bind_off);
+		Serialize(context, value.weak_bind_size);
+		Serialize(context, value.lazy_bind_off);
+		Serialize(context, value.lazy_bind_size);
+		Serialize(context, value.export_off);
+		Serialize(context, value.export_size);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, dyld_info_command& b)
@@ -454,12 +454,12 @@ void Deserialize(DeserializationContext& context, std::string_view name, dyld_in
 
 void Serialize(SerializationContext& context, const routines_command_64& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.cmd);
-	Serialize(context, value.cmdsize);
-	Serialize(context, value.init_address);
-	Serialize(context, value.init_module);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.cmd);
+		Serialize(context, value.cmdsize);
+		Serialize(context, value.init_address);
+		Serialize(context, value.init_module);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, routines_command_64& b)
@@ -473,12 +473,12 @@ void Deserialize(DeserializationContext& context, std::string_view name, routine
 
 void Serialize(SerializationContext& context, const function_starts_command& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.cmd);
-	Serialize(context, value.cmdsize);
-	Serialize(context, value.funcoff);
-	Serialize(context, value.funcsize);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.cmd);
+		Serialize(context, value.cmdsize);
+		Serialize(context, value.funcoff);
+		Serialize(context, value.funcsize);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, function_starts_command& b)
@@ -492,24 +492,23 @@ void Deserialize(DeserializationContext& context, std::string_view name, functio
 
 void Serialize(SerializationContext& context, const section_64& value)
 {
-	context.writer.StartArray();
+	context.builder.Vector([&] {
+		std::string_view sectname(value.sectname, 16);
+		std::string_view segname(value.segname, 16);
 
-	std::string_view sectname(value.sectname, 16);
-	std::string_view segname(value.segname, 16);
-
-	Serialize(context, sectname.substr(0, sectname.find('\0')));
-	Serialize(context, segname.substr(0, segname.find('\0')));
-	Serialize(context, value.addr);
-	Serialize(context, value.size);
-	Serialize(context, value.offset);
-	Serialize(context, value.align);
-	Serialize(context, value.reloff);
-	Serialize(context, value.nreloc);
-	Serialize(context, value.flags);
-	Serialize(context, value.reserved1);
-	Serialize(context, value.reserved2);
-	Serialize(context, value.reserved3);
-	context.writer.EndArray();
+		Serialize(context, sectname.substr(0, sectname.find('\0')));
+		Serialize(context, segname.substr(0, segname.find('\0')));
+		Serialize(context, value.addr);
+		Serialize(context, value.size);
+		Serialize(context, value.offset);
+		Serialize(context, value.align);
+		Serialize(context, value.reloff);
+		Serialize(context, value.nreloc);
+		Serialize(context, value.flags);
+		Serialize(context, value.reserved1);
+		Serialize(context, value.reserved2);
+		Serialize(context, value.reserved3);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<section_64>& b)
@@ -570,12 +569,12 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 
 void Serialize(SerializationContext& context, const linkedit_data_command& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.cmd);
-	Serialize(context, value.cmdsize);
-	Serialize(context, value.dataoff);
-	Serialize(context, value.datasize);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.cmd);
+		Serialize(context, value.cmdsize);
+		Serialize(context, value.dataoff);
+		Serialize(context, value.datasize);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, linkedit_data_command& b)
@@ -589,18 +588,18 @@ void Deserialize(DeserializationContext& context, std::string_view name, linkedi
 
 void Serialize(SerializationContext& context, const segment_command_64& value)
 {
-	context.writer.StartArray();
-	std::string_view segname(value.segname, 16);
-	Serialize(context, segname.substr(0, segname.find('\0')));
-	Serialize(context, value.vmaddr);
-	Serialize(context, value.vmsize);
-	Serialize(context, value.fileoff);
-	Serialize(context, value.filesize);
-	Serialize(context, value.maxprot);
-	Serialize(context, value.initprot);
-	Serialize(context, value.nsects);
-	Serialize(context, value.flags);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		std::string_view segname(value.segname, 16);
+		Serialize(context, segname.substr(0, segname.find('\0')));
+		Serialize(context, value.vmaddr);
+		Serialize(context, value.vmsize);
+		Serialize(context, value.fileoff);
+		Serialize(context, value.filesize);
+		Serialize(context, value.maxprot);
+		Serialize(context, value.initprot);
+		Serialize(context, value.nsects);
+		Serialize(context, value.flags);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, segment_command_64& b)
@@ -668,14 +667,14 @@ void Deserialize(DeserializationContext& context, std::string_view name, immer::
 
 void Serialize(SerializationContext& context, const build_version_command& value)
 {
-	context.writer.StartArray();
+	context.builder.Vector([&] {
 	Serialize(context, value.cmd);
 	Serialize(context, value.cmdsize);
 	Serialize(context, value.platform);
 	Serialize(context, value.minos);
 	Serialize(context, value.sdk);
 	Serialize(context, value.ntools);
-	context.writer.EndArray();
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, build_version_command& b)
@@ -691,10 +690,10 @@ void Deserialize(DeserializationContext& context, std::string_view name, build_v
 
 void Serialize(SerializationContext& context, const build_tool_version& value)
 {
-	context.writer.StartArray();
-	Serialize(context, value.tool);
-	Serialize(context, value.version);
-	context.writer.EndArray();
+	context.builder.Vector([&] {
+		Serialize(context, value.tool);
+		Serialize(context, value.version);
+	});
 }
 
 void Deserialize(DeserializationContext& context, std::string_view name, std::vector<build_tool_version>& b)

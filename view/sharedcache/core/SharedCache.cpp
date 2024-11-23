@@ -26,15 +26,23 @@
 
 #include "SharedCache.h"
 #include "ObjC.h"
+#include <cstdint>
 #include <filesystem>
+#include <type_traits>
 #include <utility>
 #include <fcntl.h>
 #include <memory>
 #include <chrono>
 #include <thread>
+#include "flatbuffers/buffer.h"
+#include "flatbuffers/flatbuffer_builder.h"
+#include "macho_generated.h"
+#include "serialization/shared_cache_generated.h"
 
+#include "binaryninjacore.h"
 #include "immer/flex_vector.hpp"
 #include "immer/vector_transient.hpp"
+#include "view/macho/machoview.h"
 
 using namespace BinaryNinja;
 using namespace SharedCacheCore;
@@ -1036,7 +1044,7 @@ void SharedCache::DeserializeFromRawView()
 		}
 		else
 		{
-			LoadFromString(m_dscView->GetStringMetadata(SharedCacheMetadataTag));
+			LoadFromRaw(m_dscView->GetRawMetadata(SharedCacheMetadataTag));
 		}
 		if (!m_metadataValid)
 		{
@@ -3020,27 +3028,27 @@ std::vector<std::pair<std::string, Ref<Symbol>>> SharedCache::LoadAllSymbolsAndW
 }
 
 
-std::string SharedCache::SerializedImageHeaderForAddress(uint64_t address)
+std::vector<uint8_t> SharedCache::SerializedImageHeaderForAddress(uint64_t address)
 {
 	auto header = HeaderForAddress(address);
 	if (header)
 	{
-		return header->AsString();
+		return header->AsBytes();
 	}
-	return "";
+	return {};
 }
 
 
-std::string SharedCache::SerializedImageHeaderForName(std::string name)
+std::vector<uint8_t> SharedCache::SerializedImageHeaderForName(std::string name)
 {
 	if (auto it = State().imageStarts.find(name))
 	{
 		if (auto header = HeaderForAddress(*it))
 		{
-			return header->AsString();
+			return header->AsBytes();
 		}
 	}
-	return "";
+	return {};
 }
 
 
@@ -3450,25 +3458,25 @@ extern "C"
 		delete[] images;
 	}
 
-	char* BNDSCViewGetImageHeaderForAddress(BNSharedCache* cache, uint64_t address)
+	BNDataBuffer* BNDSCViewGetImageHeaderForAddress(BNSharedCache* cache, uint64_t address)
 	{
 		if (cache->object)
 		{
 			auto header = cache->object->SerializedImageHeaderForAddress(address);
-			return BNAllocString(header.c_str());
+			return BNCreateDataBuffer(header.data(), header.size());
 		}
 
 		return nullptr;
 	}
 
-	char* BNDSCViewGetImageHeaderForName(BNSharedCache* cache, char* name)
+	BNDataBuffer *BNDSCViewGetImageHeaderForName(BNSharedCache* cache, char* name)
 	{
 		std::string imageName = std::string(name);
 		BNFreeString(name);
 		if (cache->object)
 		{
 			auto header = cache->object->SerializedImageHeaderForName(imageName);
-			return BNAllocString(header.c_str());
+			return BNCreateDataBuffer(header.data(), header.size());
 		}
 
 		return nullptr;
@@ -3526,39 +3534,87 @@ void SharedCache::Store(SerializationContext& context) const
 
     Serialize(context, "m_viewState", State().viewState);
     Serialize(context, "m_cacheFormat", State().cacheFormat);
-    Serialize(context, "m_imageStarts", State().imageStarts);
+
+	context.builder.Key("m_imageStarts");
+	([&]{
+		flatbuffers::FlatBufferBuilder builder;
+		auto it = State().imageStarts.begin();
+		auto root = builder.CreateVector<flatbuffers::Offset<serialization::ImageStart>>(State().imageStarts.size(), [&](size_t, auto* it) {
+			auto result = serialization::CreateImageStart(builder, builder.CreateString((*it)->first), (*it)->second);
+			(*it)++;
+			return result;
+			
+		}, &it);
+		builder.Finish(root);
+		auto span = builder.GetBufferSpan();
+		context.builder.Blob(span.data(), span.size());
+	})();
+
+    // Serialize(context, "m_imageStarts", State().imageStarts);
     Serialize(context, "m_baseFilePath", State().baseFilePath);
 
-	Serialize(context, "headers");
-	context.writer.StartArray();
-	for (auto& [k, v] : State().headers)
-	{
-		context.writer.StartObject();
-		v.Store(context);
-		context.writer.EndObject();
-	}
-	context.writer.EndArray();
+	context.builder.Key("headers");
+	([&]{
+		flatbuffers::FlatBufferBuilder builder;
+		auto it = State().headers.begin();
+		auto root = builder.CreateVector<flatbuffers::Offset<serialization::HeaderOffsetAndHeader>>(State().headers.size(), [&](size_t, auto* it) {
+			auto result = serialization::CreateHeaderOffsetAndHeader(builder, (*it)->first, AsSerialized(builder, (*it)->second));
+			(*it)++;
+			return result;
+			
+		}, &it);
+		builder.Finish(root);
+		auto span = builder.GetBufferSpan();
+		context.builder.Blob(span.data(), span.size());
+	})();
 
-	Serialize(context, "exportInfos");
-	context.writer.StartArray();
-	for (const auto& pair1 : State().exportInfos)
-	{
-		context.writer.StartObject();
-		Serialize(context, "key", pair1.first);
-		Serialize(context, "value");
-		context.writer.StartArray();
-		for (const auto& pair2 : pair1.second)
-		{
-			context.writer.StartObject();
-			Serialize(context, "key", pair2.first);
-			Serialize(context, "val1", pair2.second.first);
-			Serialize(context, "val2", pair2.second.second);
-			context.writer.EndObject();
-		}
-		context.writer.EndArray();
-		context.writer.EndObject();
-	}
-	context.writer.EndArray();
+	// context.builder.Vector([&] {
+	// 	for (auto& [k, v] : State().headers)
+	// 	{
+	// 		context.builder.Map([&, &v=v]{
+	// 			v.Store(context);
+	// 		});
+	// 	}
+	// });
+
+	context.builder.Key("exportInfos");
+	([&]{
+		flatbuffers::FlatBufferBuilder builder(1024 * 1024 * 500);
+		auto it = State().exportInfos.begin();
+		auto root = builder.CreateVector<flatbuffers::Offset<serialization::ExportInfoKeyValue>>(State().exportInfos.size(), [&](size_t, auto* it) {
+			auto& second = (*it)->second;
+			auto values = builder.CreateVector<flatbuffers::Offset<serialization::ExportInfo>>(second.size(), [&](size_t i) {
+				auto& value = second[i];
+				return serialization::CreateExportInfo(builder, value.first, value.second.first, builder.CreateString(value.second.second));
+			}
+			);
+			auto result = serialization::CreateExportInfoKeyValue(builder, (*it)->first, values);
+			++(*it);
+			return result;
+			
+		}, &it);
+		builder.Finish(root);
+		auto span = builder.GetBufferSpan();
+		context.builder.Blob(span.data(), span.size());
+	})();
+	// context.builder.Vector([&] {
+	// 	for (const auto& pair1 : State().exportInfos)
+	// 	{
+	// 		context.builder.Vector([&]{
+	// 			Serialize(context, pair1.first);
+	// 			context.builder.Vector([&] {
+	// 				for (const auto& pair2 : pair1.second)
+	// 				{
+	// 					context.builder.Vector([&]{
+	// 						Serialize(context, pair2.first);
+	// 						Serialize(context, pair2.second.first);
+	// 						Serialize(context, pair2.second.second);
+	// 					});
+	// 				}
+	// 			});
+	// 		});
+	// 	}
+	// });
 
 	Serialize(context, "backingCaches", State().backingCaches);
 	Serialize(context, "stubIslands", State().stubIslandRegions);
@@ -3728,4 +3784,161 @@ const immer::map<uint64_t, SharedCacheMachOHeader>& SharedCache::AllImageHeaders
 	return State().headers;
 }
 
+// TODO: native_type / Pack / Unpack is a "better" way to do this.
+template <typename To, typename From, typename Builder>
+std::enable_if_t<!std::is_base_of_v<flatbuffers::Table, To>, const To*>
+AsSerialized(Builder&, const From& from) {
+	static_assert(sizeof(From) == sizeof(To));
+#if __has_feature(__cpp_lib_is_layout_compatible)
+	static_assert(std::is_layout_compatible_v<From, To>);
+#elif __has_builtin(__is_layout_compatible)
+	static_assert(__is_layout_compatible(From, To));
+#endif
+	return reinterpret_cast<const To*>(&from);
+}
+
+template <typename Builder>
+flatbuffers::Offset<serialization::section_64> AsSerialized(Builder& builder, const section_64& section) {
+	return serialization::Createsection_64(
+		builder,
+		builder.CreateString(section.sectname),
+		builder.CreateString(section.segname),
+		section.addr,
+		section.size,
+		section.offset,
+		section.align,
+		section.reloff,
+		section.nreloc,
+		section.flags,
+		section.reserved1,
+		section.reserved2,
+		section.reserved3
+		);
+}
+
+template <typename Builder>
+flatbuffers::Offset<serialization::segment_command_64> AsSerialized(Builder& builder, const segment_command_64& segment) {
+	return serialization::Createsegment_command_64(
+		builder,
+		segment.cmd,
+		segment.cmdsize,
+		builder.CreateString(segment.segname),
+		segment.vmaddr,
+		segment.vmsize,
+		segment.fileoff,
+		segment.filesize,
+		segment.maxprot,
+		segment.initprot,
+		segment.nsects,
+		segment.flags);
+}
+
+template <typename Builder>
+flatbuffers::Offset<serialization::SharedCacheMachOHeader> AsSerialized(Builder& builder, const SharedCacheMachOHeader& header) {
+	return serialization::CreateSharedCacheMachOHeader(builder,
+		header.textBase,
+		header.loadCommandOffset,
+		AsSerialized<serialization::mach_header_64>(builder, header.ident),
+		builder.CreateString(header.identifierPrefix), 
+		 builder.CreateString(header.installName),
+		 builder.template CreateVectorOfStructs<serialization::Entrypoint>(header.entryPoints.size(), [&](size_t i, serialization::Entrypoint* out) {
+			*out = serialization::Entrypoint(header.entryPoints[i].first, header.entryPoints[i].second);
+		 }),
+	 	builder.template CreateVector<uint64_t>(header.m_entryPoints.size(), [&](size_t i) {
+			return header.m_entryPoints[i];
+		}),
+		AsSerialized<serialization::symtab_command>(builder, header.symtab),
+		AsSerialized<serialization::dysymtab_command>(builder, header.dysymtab),
+		AsSerialized<serialization::dyld_info_command>(builder, header.dyldInfo),
+		nullptr,
+		AsSerialized<serialization::function_starts_command>(builder, header.functionStarts),
+		builder.template CreateVector<flatbuffers::Offset<serialization::section_64>>(header.moduleInitSections.size(), [&](size_t i) {
+			auto& section = header.moduleInitSections[i];
+			return AsSerialized(builder, section);
+		}),
+		AsSerialized<serialization::linkedit_data_command>(builder, header.exportTrie),
+		AsSerialized<serialization::linkedit_data_command>(builder, header.chainedFixups),
+		header.relocationBase,
+		builder.template CreateVector<flatbuffers::Offset<serialization::segment_command_64>>(header.segments.size(), [&](size_t i) {
+			auto& segment = header.segments[i];
+			return AsSerialized(builder, segment);
+		}),
+		AsSerialized(builder, header.linkeditSegment),
+		builder.template CreateVector<flatbuffers::Offset<serialization::section_64>>(header.sections.size(), [&](size_t i) {
+			auto& section = header.sections[i];
+			return AsSerialized(builder, section);
+		}),
+		builder.CreateVectorOfStrings(header.sectionNames.begin(), header.sectionNames.end()),
+		builder.template CreateVector<flatbuffers::Offset<serialization::section_64>>(header.symbolStubSections.size(), [&](size_t i) {
+			auto& section = header.symbolStubSections[i];
+			return AsSerialized(builder, section);
+		}),
+		builder.template CreateVector<flatbuffers::Offset<serialization::section_64>>(header.symbolPointerSections.size(), [&](size_t i) {
+			auto& section = header.symbolPointerSections[i];
+			return AsSerialized(builder, section);
+		}),
+		builder.CreateVectorOfStrings(header.dylibs.begin(), header.dylibs.end()),
+		AsSerialized<serialization::build_version_command>(builder, header.buildVersion),
+		builder.template CreateVectorOfStructs<serialization::build_tool_version>(header.buildToolVersions.size(), [&](size_t i, serialization::build_tool_version* out) {
+			*out = *AsSerialized<serialization::build_tool_version>(builder, header.buildToolVersions[i]);
+		}),
+		builder.CreateString(header.exportTriePath),
+		header.linkeditPresent,
+		header.dysymPresent,
+		header.dyldInfoPresent,
+		header.exportTriePresent,
+		header.chainedFixupsPresent,
+		header.routinesPresent,
+		header.functionStartsPresent,
+		header.relocatable
+		);
+}
+
+
+void SharedCacheMachOHeader::Store(SerializationContext& context) const
+{
+	flatbuffers::FlatBufferBuilder builder;
+	auto root = AsSerialized(builder, *this);
+	builder.Finish(root);
+	auto span = builder.GetBufferSpan();
+	context.builder.Blob(span.data(), span.size());
+}
+
+void SharedCacheMachOHeader::Load(DeserializationContext& context)
+{
+	MSL(textBase);
+	MSL(loadCommandOffset);
+	MSL_SUBCLASS(ident);
+	MSL(identifierPrefix);
+	MSL(installName);
+	MSL(entryPoints);
+	MSL(m_entryPoints);
+	MSL_SUBCLASS(symtab);
+	MSL_SUBCLASS(dysymtab);
+	MSL_SUBCLASS(dyldInfo);
+	// MSL_SUBCLASS(routines64); // FIXME CRASH but also do we even use this?
+	MSL_SUBCLASS(functionStarts);
+	MSL_SUBCLASS(moduleInitSections);
+	MSL_SUBCLASS(exportTrie);
+	MSL_SUBCLASS(chainedFixups);
+	MSL(relocationBase);
+	MSL_SUBCLASS(segments);
+	MSL_SUBCLASS(linkeditSegment);
+	MSL_SUBCLASS(sections);
+	MSL(sectionNames);
+	MSL_SUBCLASS(symbolStubSections);
+	MSL_SUBCLASS(symbolPointerSections);
+	MSL(dylibs);
+	MSL_SUBCLASS(buildVersion);
+	MSL_SUBCLASS(buildToolVersions);
+	MSL(linkeditPresent);
+	MSL(exportTriePath);
+	MSL(dysymPresent);
+	MSL(dyldInfoPresent);
+	MSL(exportTriePresent);
+	MSL(chainedFixupsPresent);
+	// MSL(routinesPresent);
+	MSL(functionStartsPresent);
+	MSL(relocatable);
+}
 }  // namespace SharedCacheCore

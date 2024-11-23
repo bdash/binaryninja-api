@@ -194,29 +194,32 @@ namespace SharedCacheAPI {
 	std::optional<SharedCacheMachOHeader> SharedCache::GetMachOHeaderForImage(std::string_view name)
 	{
 		char* str = BNAllocString(name.data());
-		char* outputStr = BNDSCViewGetImageHeaderForName(m_object, str);
-		if (outputStr == nullptr)
+		BNDataBuffer *rawBuffer = BNDSCViewGetImageHeaderForName(m_object, str);
+		BNFreeString(str);
+		if (rawBuffer == nullptr)
 			return {};
-		std::string output = outputStr;
-		BNFreeString(outputStr);
-		if (output.empty())
+
+		DataBuffer buffer(rawBuffer);
+		if (!buffer.GetLength())
 			return {};
+
 		SharedCacheMachOHeader header;
-		header.LoadFromString(output);
+		header.LoadFromDataBuffer(std::move(buffer));
 		return header;
 	}
 
 	std::optional<SharedCacheMachOHeader> SharedCache::GetMachOHeaderForAddress(uint64_t address)
 	{
-		char* outputStr = BNDSCViewGetImageHeaderForAddress(m_object, address);
-		if (outputStr == nullptr)
+		BNDataBuffer *rawBuffer = BNDSCViewGetImageHeaderForAddress(m_object, address);
+		if (rawBuffer == nullptr)
 			return {};
-		std::string output = outputStr;
-		BNFreeString(outputStr);
-		if (output.empty())
+
+		DataBuffer buffer(rawBuffer);
+		if (!buffer.GetLength())
 			return {};
+
 		SharedCacheMachOHeader header;
-		header.LoadFromString(output);
+		header.LoadFromDataBuffer(std::move(buffer));
 		return header;
 	}
 

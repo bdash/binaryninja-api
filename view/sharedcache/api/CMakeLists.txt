@@ -64,7 +64,8 @@ endfunction()
 get_recursive_include_dirs(binaryninjaapi INCLUDES)
 
 target_include_directories(sharedcacheapi
-        PUBLIC ${PROJECT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer)
+        PUBLIC ${PROJECT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer
+        PRIVATE ${BN_API_PATH}/vendor/flatbuffers/include)
 
 set_target_properties(sharedcacheapi PROPERTIES
         CXX_STANDARD 17

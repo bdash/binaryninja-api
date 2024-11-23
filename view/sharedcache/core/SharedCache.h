@@ -71,13 +71,7 @@ namespace SharedCacheCore {
 		{
 			MSS(installName);
 			MSS(headerLocation);
-			Serialize(context, "regions");
-			context.writer.StartArray();
-			for (auto& region : regions)
-			{
-				Serialize(context, region.AsString());
-			}
-			context.writer.EndArray();
+			MSS(regions);
 		}
 
 		void Load(DeserializationContext& context)
@@ -89,7 +83,7 @@ namespace SharedCacheCore {
 			for (auto& region : bArr)
 			{
 				MemoryRegion r;
-				r.LoadFromString(region.GetString());
+				r.LoadFromValue(region);
 				local_regions.push_back(r);
 			}
 			regions = local_regions.persistent();
@@ -408,80 +402,9 @@ namespace SharedCacheCore {
 		bool functionStartsPresent = false;
 		bool relocatable = false;
 
-		void Store(SerializationContext& context) const
-		{
-			MSS(textBase);
-			MSS(loadCommandOffset);
-			MSS_SUBCLASS(ident);
-			MSS(identifierPrefix);
-			MSS(installName);
-			MSS(entryPoints);
-			MSS(m_entryPoints);
-			MSS_SUBCLASS(symtab);
-			MSS_SUBCLASS(dysymtab);
-			MSS_SUBCLASS(dyldInfo);
-			// MSS_SUBCLASS(routines64);
-			MSS_SUBCLASS(functionStarts);
-			MSS_SUBCLASS(moduleInitSections);
-			MSS_SUBCLASS(exportTrie);
-			MSS_SUBCLASS(chainedFixups);
-			MSS(relocationBase);
-			MSS_SUBCLASS(segments);
-			MSS_SUBCLASS(linkeditSegment);
-			MSS_SUBCLASS(sections);
-			MSS(sectionNames);
-			MSS_SUBCLASS(symbolStubSections);
-			MSS_SUBCLASS(symbolPointerSections);
-			MSS(dylibs);
-			MSS_SUBCLASS(buildVersion);
-			MSS_SUBCLASS(buildToolVersions);
-			MSS(linkeditPresent);
-			MSS(exportTriePath);
-			MSS(dysymPresent);
-			MSS(dyldInfoPresent);
-			MSS(exportTriePresent);
-			MSS(chainedFixupsPresent);
-			MSS(routinesPresent);
-			MSS(functionStartsPresent);
-			MSS(relocatable);
-		}
-		void Load(DeserializationContext& context)
-		{
-			MSL(textBase);
-			MSL(loadCommandOffset);
-			MSL_SUBCLASS(ident);
-			MSL(identifierPrefix);
-			MSL(installName);
-			MSL(entryPoints);
-			MSL(m_entryPoints);
-			MSL_SUBCLASS(symtab);
-			MSL_SUBCLASS(dysymtab);
-			MSL_SUBCLASS(dyldInfo);
-			// MSL_SUBCLASS(routines64); // FIXME CRASH but also do we even use this?
-			MSL_SUBCLASS(functionStarts);
-			MSL_SUBCLASS(moduleInitSections);
-			MSL_SUBCLASS(exportTrie);
-			MSL_SUBCLASS(chainedFixups);
-			MSL(relocationBase);
-			MSL_SUBCLASS(segments);
-			MSL_SUBCLASS(linkeditSegment);
-			MSL_SUBCLASS(sections);
-			MSL(sectionNames);
-			MSL_SUBCLASS(symbolStubSections);
-			MSL_SUBCLASS(symbolPointerSections);
-			MSL(dylibs);
-			MSL_SUBCLASS(buildVersion);
-			MSL_SUBCLASS(buildToolVersions);
-			MSL(linkeditPresent);
-			MSL(exportTriePath);
-			MSL(dysymPresent);
-			MSL(dyldInfoPresent);
-			MSL(exportTriePresent);
-			MSL(chainedFixupsPresent);
-			// MSL(routinesPresent);
-			MSL(functionStartsPresent);
-			MSL(relocatable);
-		}
+		void Store(SerializationContext& context) const;
+		void Load(DeserializationContext& context);
+		size_t EstimatedSize() const { return 1024; }
 	};
 
 
@@ -534,6 +457,7 @@ namespace SharedCacheCore {
 
 		void Store(SerializationContext& context) const;
 		void Load(DeserializationContext& context);
+		size_t EstimatedSize() const { return 400 * 1024 * 1024; }
 
 		struct State;
 
@@ -584,8 +508,8 @@ namespace SharedCacheCore {
 		const immer::map<std::string, uint64_t>& AllImageStarts() const;
 		const immer::map<uint64_t, SharedCacheMachOHeader>& AllImageHeaders() const;
 
-		std::string SerializedImageHeaderForAddress(uint64_t address);
-		std::string SerializedImageHeaderForName(std::string name);
+		std::vector<uint8_t> SerializedImageHeaderForAddress(uint64_t address);
+		std::vector<uint8_t> SerializedImageHeaderForName(std::string name);
 
 		void FindSymbolAtAddrAndApplyToAddr(uint64_t symbolLocation, uint64_t targetLocation, bool triggerReanalysis);
 

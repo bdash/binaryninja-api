@@ -103,6 +103,9 @@ class BNDSCSymbolRep(ctypes.Structure):
 BNDSCSymbolRepHandle = ctypes.POINTER(BNDSCSymbolRep)
 DSCViewLoadProgressEnum = ctypes.c_int
 DSCViewStateEnum = ctypes.c_int
+class BNDataBuffer(ctypes.Structure):
+	pass
+BNDataBufferHandle = ctypes.POINTER(BNDataBuffer)
 class BNSharedCache(ctypes.Structure):
 	pass
 BNSharedCacheHandle = ctypes.POINTER(BNSharedCache)
@@ -313,7 +316,7 @@ def BNDSCViewGetBackingCaches(
 # _BNDSCViewGetImageHeaderForAddress
 
 _BNDSCViewGetImageHeaderForAddress = core.BNDSCViewGetImageHeaderForAddress
-_BNDSCViewGetImageHeaderForAddress.restype = ctypes.POINTER(ctypes.c_byte)
+_BNDSCViewGetImageHeaderForAddress.restype = ctypes.POINTER(BNDataBuffer)
 _BNDSCViewGetImageHeaderForAddress.argtypes = [
 		ctypes.POINTER(BNSharedCache),
 		ctypes.c_ulonglong,
@@ -324,20 +327,18 @@ _BNDSCViewGetImageHeaderForAddress.argtypes = [
 def BNDSCViewGetImageHeaderForAddress(
 		cache: ctypes.POINTER(BNSharedCache), 
 		address: int
-		) -> Optional[Optional[str]]:
+		) -> Optional[ctypes.POINTER(BNDataBuffer)]:
 	result = _BNDSCViewGetImageHeaderForAddress(cache, address)
 	if not result:
 		return None
-	string = str(pyNativeStr(ctypes.cast(result, ctypes.c_char_p).value))
-	BNFreeString(result)
-	return string
+	return result
 
 
 # -------------------------------------------------------
 # _BNDSCViewGetImageHeaderForName
 
 _BNDSCViewGetImageHeaderForName = core.BNDSCViewGetImageHeaderForName
-_BNDSCViewGetImageHeaderForName.restype = ctypes.POINTER(ctypes.c_byte)
+_BNDSCViewGetImageHeaderForName.restype = ctypes.POINTER(BNDataBuffer)
 _BNDSCViewGetImageHeaderForName.argtypes = [
 		ctypes.POINTER(BNSharedCache),
 		ctypes.c_char_p,
@@ -348,13 +349,11 @@ _BNDSCViewGetImageHeaderForName.argtypes = [
 def BNDSCViewGetImageHeaderForName(
 		cache: ctypes.POINTER(BNSharedCache), 
 		name: Optional[str]
-		) -> Optional[Optional[str]]:
+		) -> Optional[ctypes.POINTER(BNDataBuffer)]:
 	result = _BNDSCViewGetImageHeaderForName(cache, cstr(name))
 	if not result:
 		return None
-	string = str(pyNativeStr(ctypes.cast(result, ctypes.c_char_p).value))
-	BNFreeString(result)
-	return string
+	return result
 
 
 # -------------------------------------------------------
