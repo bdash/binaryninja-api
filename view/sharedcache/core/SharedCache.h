@@ -589,6 +589,7 @@ namespace SharedCacheCore {
 		static SharedCache* GetFromDSCView(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView);
 		static uint64_t FastGetBackingCacheCount(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView);
 		bool SaveToDSCView();
+		bool SaveTransientStateOnlyToDSCView();
 
 		void ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file);
 		std::optional<uint64_t> GetImageStart(std::string installName);
@@ -623,17 +624,31 @@ namespace SharedCacheCore {
 
 		size_t GetObjCRelativeMethodBaseAddress(const VMReader& reader) const;
 
-private:
+	private:
+		struct ExportNode
+		{
+			std::string name;
+			uint64_t offset;
+			BNSymbolType type;
+
+			Ref<Symbol> AsSymbol() const { return new Symbol(type, name, offset); }
+		};
+
 		std::optional<SharedCacheMachOHeader> LoadHeaderForAddress(
 			std::shared_ptr<VM> vm, uint64_t address, std::string_view installName);
 		void InitializeHeader(
 			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, const std::vector<const MemoryRegion*> regionsToLoad);
-		void ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer,
+
+		void ReadExportNode(std::vector<ExportNode>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer,
 			uint64_t textBase, const std::string& currentText, size_t cursor, uint32_t endGuard);
-		std::vector<Ref<Symbol>> ParseExportTrie(
+		std::vector<ExportNode> ParseExportTrie(
 			std::shared_ptr<MMappedFileAccessor> linkeditFile, SharedCacheMachOHeader header);
 
 		Ref<TypeLibrary> TypeLibraryForImage(const std::string& installName);
+		template<class It, class T = typename std::iterator_traits<It>::value_type>
+		std::enable_if_t<std::is_same_v<T, SharedCache::ExportNode>, void>
+		ApplySymbolAtAddr(It begin, It end, uint64_t symbolLocation, uint64_t targetLocation, std::string_view prefix, bool triggerReanalysis, Ref<TypeLibrary>& typeLib);
+
 		size_t GetBaseAddress() const;
 		std::optional<ObjCOptimizationHeader> GetObjCOptimizationHeader(VMReader reader) const;
 

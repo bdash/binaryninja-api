@@ -57,10 +57,14 @@ int count_trailing_zeros(uint64_t value) {
 }
 #endif
 
+template <typename T>
+immer::vector<T> AsImmerVector(std::vector<T> input) {
+	return {std::move_iterator(input.begin()), std::move_iterator(input.end())};
+}
+
 struct SharedCache::State
 {
-	immer::map<uint64_t, immer::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>>>
-		exportInfos;
+	immer::map<uint64_t, immer::vector<ExportNode>> exportInfos;
 	immer::map<uint64_t, immer::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>>>
 		symbolInfos;
 
@@ -2909,10 +2913,9 @@ void SharedCache::InitializeHeader(
 	if (header.exportTriePresent && header.linkeditPresent && vm->AddressIsMapped(header.linkeditSegment.vmaddr))
 	{
 		auto symbols = SharedCache::ParseExportTrie(vm->MappingAtAddress(header.linkeditSegment.vmaddr).first.fileAccessor->lock(), header);
-		immer::vector_transient<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> exportMapping;
-		for (const auto& symbol : symbols)
+		for (auto& node : symbols)
 		{
-			exportMapping.push_back({symbol->GetAddress(), {symbol->GetType(), symbol->GetRawName()}});
+			auto symbol = node.AsSymbol();
 			if (typeLib)
 			{
 				auto type = m_dscView->ImportTypeLibraryObject(typeLib, {symbol->GetFullName()});
@@ -2949,7 +2952,8 @@ void SharedCache::InitializeHeader(
 			else
 				view->DefineAutoSymbol(symbol);
 		}
-		MutableState().exportInfos = State().exportInfos.set(header.textBase, std::move(exportMapping).persistent());
+
+		MutableState().exportInfos = State().exportInfos.set(header.textBase, AsImmerVector(std::move(symbols)));
 	}
 	view->EndBulkModifySymbols();
 
@@ -2960,15 +2964,8 @@ void SharedCache::InitializeHeader(
 	// }
 }
 
-struct ExportNode
-{
-	std::string text;
-	uint64_t offset;
-	uint64_t flags;
-};
 
-
-void SharedCache::ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer, uint64_t textBase,
+void SharedCache::ReadExportNode(std::vector<ExportNode>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer, uint64_t textBase,
 	const std::string& currentText, size_t cursor, uint32_t endGuard)
 {
 	WillMutateState();
@@ -2984,34 +2981,30 @@ void SharedCache::ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCac
 		if (!(flags & EXPORT_SYMBOL_FLAGS_REEXPORT))
 		{
 			imageOffset = readValidULEB128(buffer, cursor);
-			auto symbolType = m_dscView->GetAnalysisFunctionsForAddress(textBase + imageOffset).size() ? FunctionSymbol : DataSymbol;
+			if (!currentText.empty() && textBase + imageOffset)
 			{
-				if (!currentText.empty() && textBase + imageOffset)
+				uint32_t flags;
+				BNSymbolType type;
+				for (auto s : header.sections)
 				{
-					uint32_t flags;
-					BNSymbolType type;
-					for (auto s : header.sections)
+					if (s.addr < textBase + imageOffset)
 					{
-						if (s.addr < textBase + imageOffset)
+						if (s.addr + s.size > textBase + imageOffset)
 						{
-							if (s.addr + s.size > textBase + imageOffset)
-							{
-								flags = s.flags;
-							}
+							flags = s.flags;
 						}
 					}
-					if ((flags & S_ATTR_PURE_INSTRUCTIONS) == S_ATTR_PURE_INSTRUCTIONS
-						|| (flags & S_ATTR_SOME_INSTRUCTIONS) == S_ATTR_SOME_INSTRUCTIONS)
-						type = FunctionSymbol;
-					else
-						type = DataSymbol;
+				}
+				if ((flags & S_ATTR_PURE_INSTRUCTIONS) == S_ATTR_PURE_INSTRUCTIONS
+					|| (flags & S_ATTR_SOME_INSTRUCTIONS) == S_ATTR_SOME_INSTRUCTIONS)
+					type = FunctionSymbol;
+				else
+					type = DataSymbol;
 
 #if EXPORT_TRIE_DEBUG
-						// BNLogInfo("export: %s -> 0x%llx", n.text.c_str(), image.baseAddress + n.offset);
+					// BNLogInfo("export: %s -> 0x%llx", n.text.c_str(), image.baseAddress + n.offset);
 #endif
-					auto sym = new Symbol(type, currentText, textBase + imageOffset);
-					symbolList.push_back(sym);
-				}
+				symbolList.push_back({currentText, textBase + imageOffset, type});
 			}
 		}
 	}
@@ -3036,23 +3029,20 @@ void SharedCache::ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCac
 }
 
 
-std::vector<Ref<Symbol>> SharedCache::ParseExportTrie(std::shared_ptr<MMappedFileAccessor> linkeditFile, SharedCacheMachOHeader header)
+std::vector<SharedCache::ExportNode> SharedCache::ParseExportTrie(std::shared_ptr<MMappedFileAccessor> linkeditFile, SharedCacheMachOHeader header)
 {
-	std::vector<Ref<Symbol>> symbols;
 	try
 	{
-		auto reader = linkeditFile;
-
 		std::vector<ExportNode> nodes;
-
-		DataBuffer buffer = reader->ReadBuffer(header.exportTrie.dataoff, header.exportTrie.datasize);
-		ReadExportNode(symbols, header, buffer, header.textBase, "", 0, header.exportTrie.datasize);
+		DataBuffer buffer = linkeditFile->ReadBuffer(header.exportTrie.dataoff, header.exportTrie.datasize);
+		ReadExportNode(nodes, header, buffer, header.textBase, "", 0, header.exportTrie.datasize);
+		return nodes;
 	}
 	catch (std::exception& e)
 	{
 		BNLogError("Failed to load Export Trie");
+		return {};
 	}
-	return symbols;
 }
 
 std::vector<std::string> SharedCache::GetAvailableImages()
@@ -3087,13 +3077,11 @@ std::vector<std::pair<std::string, Ref<Symbol>>> SharedCache::LoadAllSymbolsAndW
 			continue;
 		}
 		auto exportList = SharedCache::ParseExportTrie(mapping, *header);
-		immer::vector_transient<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> exportMapping;
-		for (const auto& sym : exportList)
+		for (auto& sym : exportList)
 		{
-			exportMapping.push_back({sym->GetAddress(), {sym->GetType(), sym->GetRawName()}});
-			symbols.push_back({img.installName, sym});
+			symbols.push_back({img.installName, sym.AsSymbol()});
 		}
-		newExportInfos.set(header->textBase, std::move(exportMapping).persistent());
+		newExportInfos.set(header->textBase, AsImmerVector(std::move(exportList)));
 	}
 	MutableState().exportInfos = std::move(newExportInfos).persistent();
 
@@ -3158,78 +3146,89 @@ void SharedCache::FindSymbolAtAddrAndApplyToAddr(
 		if (preexistingSymbol->GetFullName().find("j_") != std::string::npos)
 			return;
 	}
-	auto id = m_dscView->BeginUndoActions();
 	if (auto loadedSymbol = m_dscView->GetSymbolByAddress(symbolLocation))
 	{
+		auto id = m_dscView->BeginUndoActions();
 		if (m_dscView->GetAnalysisFunction(m_dscView->GetDefaultPlatform(), targetLocation))
 			m_dscView->DefineUserSymbol(new Symbol(FunctionSymbol, prefix + loadedSymbol->GetFullName(), targetLocation));
 		else
 			m_dscView->DefineUserSymbol(new Symbol(loadedSymbol->GetType(), prefix + loadedSymbol->GetFullName(), targetLocation));
-	}
-	else if (auto sym = m_dscView->GetSymbolByAddress(symbolLocation))
-	{
-		if (m_dscView->GetAnalysisFunction(m_dscView->GetDefaultPlatform(), targetLocation))
-			m_dscView->DefineUserSymbol(new Symbol(FunctionSymbol, prefix + sym->GetFullName(), targetLocation));
-		else
-			m_dscView->DefineUserSymbol(new Symbol(sym->GetType(), prefix + sym->GetFullName(), targetLocation));
-	}
-	m_dscView->ForgetUndoActions(id);
-	auto header = HeaderForAddress(symbolLocation);
-	if (header)
-	{
-		std::shared_ptr<MMappedFileAccessor> mapping;
-		try {
-			mapping = MMappedFileAccessor::Open(m_dscView, m_dscView->GetFile()->GetSessionId(), header->exportTriePath)->lock();
-		}
-		catch (...)
-		{
-			m_logger->LogWarn("Serious Error: Failed to open export trie for %s", header->installName.c_str());
-			return;
-		}
-		auto exportList = SharedCache::ParseExportTrie(mapping, *header);
-		immer::vector_transient<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> exportMapping;
-		auto typeLib = TypeLibraryForImage(header->installName);
-		id = m_dscView->BeginUndoActions();
-		m_dscView->BeginBulkModifySymbols();
-		for (const auto& sym : exportList)
-		{
-			exportMapping.push_back({sym->GetAddress(), {sym->GetType(), sym->GetRawName()}});
-			if (sym->GetAddress() == symbolLocation)
-			{
-				if (auto func = m_dscView->GetAnalysisFunction(m_dscView->GetDefaultPlatform(), targetLocation))
-				{
-					m_dscView->DefineUserSymbol(
-						new Symbol(FunctionSymbol, prefix + sym->GetFullName(), targetLocation));
-
-					if (typeLib)
-						if (auto type = m_dscView->ImportTypeLibraryObject(typeLib, {sym->GetFullName()}))
-							func->SetUserType(type);
-				}
-				else
-				{
-					m_dscView->DefineUserSymbol(
-						new Symbol(sym->GetType(), prefix + sym->GetFullName(), targetLocation));
-
-					if (typeLib)
-						if (auto type = m_dscView->ImportTypeLibraryObject(typeLib, {sym->GetFullName()}))
-							m_dscView->DefineUserDataVariable(targetLocation, type);
-				}
-				if (triggerReanalysis)
-				{
-					auto func = m_dscView->GetAnalysisFunction(m_dscView->GetDefaultPlatform(), targetLocation);
-					if (func)
-						func->Reanalyze();
-				}
-				break;
-			}
-		}
-		{
-			std::lock_guard lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
-			MutableState().exportInfos = State().exportInfos.set(header->textBase, std::move(exportMapping).persistent());
-		}
-		m_dscView->EndBulkModifySymbols();
 		m_dscView->ForgetUndoActions(id);
 	}
+
+	auto header = HeaderForAddress(symbolLocation);
+	if (!header) {
+		return;
+	}
+
+	if (auto exportInfo = State().exportInfos.find(header->textBase)) {
+		auto typeLib = TypeLibraryForImage(header->installName);
+		ApplySymbolAtAddr(exportInfo->begin(), exportInfo->end(), symbolLocation, targetLocation, prefix, triggerReanalysis, typeLib);
+		SaveTransientStateOnlyToDSCView();
+		return;
+	}
+
+	std::shared_ptr<MMappedFileAccessor> mapping;
+	try {
+		mapping = MMappedFileAccessor::Open(m_dscView, m_dscView->GetFile()->GetSessionId(), header->exportTriePath)->lock();
+	}
+	catch (...)
+	{
+		m_logger->LogWarn("Serious Error: Failed to open export trie for %s", header->installName.c_str());
+		return;
+	}
+	auto exportList = SharedCache::ParseExportTrie(mapping, *header);
+	auto typeLib = TypeLibraryForImage(header->installName);
+	ApplySymbolAtAddr(exportList.begin(), exportList.end(), symbolLocation, targetLocation, prefix, triggerReanalysis, typeLib);
+
+	{
+		std::lock_guard lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
+		MutableState().exportInfos = State().exportInfos.set(header->textBase, AsImmerVector(std::move(exportList)));
+	}
+
+	SaveTransientStateOnlyToDSCView();
+}
+
+template<class It, class T>
+std::enable_if_t<std::is_same_v<T, SharedCache::ExportNode>, void>
+SharedCache::ApplySymbolAtAddr(It begin, It end, uint64_t symbolLocation, uint64_t targetLocation, std::string_view prefix, bool triggerReanalysis, Ref<TypeLibrary>& typeLib)
+{
+	auto it = std::find_if(begin, end, [&] (auto& sym) { return sym.offset == symbolLocation; });
+	if (it == end) {
+		return;
+	}
+
+	auto id = m_dscView->BeginUndoActions();
+	const auto& sym = it->AsSymbol();
+
+	Ref<Type> importedType;
+	if (typeLib) {
+		importedType = m_dscView->ImportTypeLibraryObject(typeLib, {sym->GetFullName()});
+	}
+
+	if (auto func = m_dscView->GetAnalysisFunction(m_dscView->GetDefaultPlatform(), targetLocation)) {
+		m_dscView->DefineUserSymbol(
+			new Symbol(FunctionSymbol, std::string(prefix) + sym->GetFullName(), targetLocation));
+
+		if (importedType) {
+			func->SetUserType(importedType);
+		}
+
+		if (triggerReanalysis) {
+			func->Reanalyze();
+		}
+	}
+	else
+	{
+		m_dscView->DefineUserSymbol(
+			new Symbol(sym->GetType(), std::string(prefix) + sym->GetFullName(), targetLocation));
+
+		if (importedType) {
+			m_dscView->DefineUserDataVariable(targetLocation, importedType);
+		}
+	}
+
+	m_dscView->ForgetUndoActions(id);
 }
 
 
@@ -3255,6 +3254,30 @@ bool SharedCache::SaveToDSCView()
 	}
 	return false;
 }
+
+bool SharedCache::SaveTransientStateOnlyToDSCView()
+{
+	if (!m_dscView)
+	{
+		return false;
+	}
+
+	// Store our state to the state cache. Do not serialize metadata to the view.
+
+	// By moving our state the to cache we can avoid creating a copy in the case
+	// that no further mutations are made to `this`. If we're not done being mutated,
+	// the data will be copied on the first mutation.
+	auto cachedState = std::make_shared<struct State>(std::move(*m_state));
+	m_state = cachedState;
+	m_stateIsShared = true;
+
+	m_viewSpecificState->SetCachedState(std::move(cachedState));
+
+	m_metadataValid = true;
+
+	return true;
+}
+
 
 immer::vector<MemoryRegion> SharedCache::GetMappedRegions() const
 {
@@ -3676,12 +3699,12 @@ void SharedCache::Store(SerializationContext& context) const
 		Serialize(context, "key", pair1.first);
 		Serialize(context, "value");
 		context.writer.StartArray();
-		for (const auto& pair2 : pair1.second)
+		for (const auto& node : pair1.second)
 		{
 			context.writer.StartObject();
-			Serialize(context, "key", pair2.first);
-			Serialize(context, "val1", pair2.second.first);
-			Serialize(context, "val2", pair2.second.second);
+			Serialize(context, "key", node.offset);
+			Serialize(context, "val1", node.type);
+			Serialize(context, "val2", node.name);
 			context.writer.EndObject();
 		}
 		context.writer.EndArray();
@@ -3755,12 +3778,14 @@ void SharedCache::Load(DeserializationContext& context)
 	auto exportInfos = State().exportInfos.transient();
 	for (const auto& obj1 : context.doc["exportInfos"].GetArray())
 	{
-		immer::vector_transient<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> innerVec;
+		immer::vector_transient<ExportNode> innerVec;
 		for (const auto& obj2 : obj1["value"].GetArray())
 		{
-			std::pair<BNSymbolType, std::string> innerPair = {
-				(BNSymbolType)obj2["val1"].GetUint64(), obj2["val2"].GetString()};
-			innerVec.push_back({obj2["key"].GetUint64(), innerPair});
+			innerVec.push_back({
+				obj2["val2"].GetString(),
+				obj2["key"].GetUint64(),
+				(BNSymbolType)obj2["val1"].GetUint64()
+			});
 		}
 		exportInfos.set(obj1["key"].GetUint64(), std::move(innerVec).persistent());
 	}
