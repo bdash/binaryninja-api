@@ -27,6 +27,8 @@
 #include "SharedCache.h"
 #include "ObjC.h"
 #include <filesystem>
+#include <mutex>
+#include <unordered_map>
 #include <utility>
 #include <fcntl.h>
 #include <memory>
@@ -75,19 +77,51 @@ struct ViewStateCacheStore {
 	std::unordered_map<uint64_t, std::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>>> m_symbolInfos;
 };
 
-static std::recursive_mutex viewStateMutex;
-static std::unordered_map<uint64_t, ViewStateCacheStore> viewStateCache;
-
-std::mutex progressMutex;
-std::unordered_map<uint64_t, BNDSCViewLoadProgress> progressMap;
-
-struct ViewSpecificMutexes {
+struct SharedCache::ViewSpecificState {
+	std::mutex typeLibraryMutex;
 	std::mutex viewOperationsThatInfluenceMetadataMutex;
-	std::mutex typeLibraryLookupAndApplicationMutex;
+
+	std::atomic<BNDSCViewLoadProgress> progress;
+
+	std::mutex stateMutex;
+	std::optional<ViewStateCacheStore> state;
 };
 
-static std::unordered_map<uint64_t, ViewSpecificMutexes> viewSpecificMutexes;
 
+std::shared_ptr<SharedCache::ViewSpecificState> ViewSpecificStateForId(uint64_t viewIdentifier, bool insertIfNeeded = true) {
+	static std::mutex viewSpecificStateMutex;
+	static std::unordered_map<uint64_t, std::weak_ptr<SharedCache::ViewSpecificState>> viewSpecificState;
+
+	std::lock_guard lock(viewSpecificStateMutex);
+
+	if (auto it = viewSpecificState.find(viewIdentifier); it != viewSpecificState.end()) {
+		if (auto statePtr = it->second.lock()) {
+			return statePtr;
+		}
+	}
+
+	if (!insertIfNeeded) {
+		return nullptr;
+	}
+
+	auto statePtr = std::make_shared<SharedCache::ViewSpecificState>();
+	viewSpecificState[viewIdentifier] = statePtr;
+
+	// Prune entries for any views that are no longer in use.
+	for (auto it = viewSpecificState.begin(); it != viewSpecificState.end(); ) {
+		if (it->second.expired()) {
+			it = viewSpecificState.erase(it);
+		} else {
+			++it;
+		}
+	}
+
+	return statePtr;
+}
+
+std::shared_ptr<SharedCache::ViewSpecificState> ViewSpecificStateForView(Ref<BinaryNinja::BinaryView> view) {
+	return ViewSpecificStateForId(view->GetFile()->GetSessionId());
+}
 
 std::string base_name(std::string const& path)
 {
@@ -217,9 +251,7 @@ void SharedCache::PerformInitialLoad()
 	auto path = m_dscView->GetFile()->GetOriginalFilename();
 	auto baseFile = MMappedFileAccessor::Open(m_dscView, m_dscView->GetFile()->GetSessionId(), path)->lock();
 
-    progressMutex.lock();
-	progressMap[m_dscView->GetFile()->GetSessionId()] = LoadProgressLoadingCaches;
-	progressMutex.unlock();
+	m_viewSpecificState->progress = LoadProgressLoadingCaches;
 
 	m_baseFilePath = path;
 
@@ -729,9 +761,8 @@ void SharedCache::PerformInitialLoad()
 	}
 	}
 	baseFile.reset();
-	progressMutex.lock();
-	progressMap[m_dscView->GetFile()->GetSessionId()] = LoadProgressLoadingImages;
-	progressMutex.unlock();
+
+	m_viewSpecificState->progress = LoadProgressLoadingImages;
 
 	// We have set up enough metadata to map VM now.
 
@@ -948,9 +979,7 @@ void SharedCache::PerformInitialLoad()
 
 	m_logger->LogDebug("Finished initial load of Shared Cache");
 
-	progressMutex.lock();
-	progressMap[m_dscView->GetFile()->GetSessionId()] = LoadProgressFinished;
-	progressMutex.unlock();
+	m_viewSpecificState->progress = LoadProgressFinished;
 }
 
 std::shared_ptr<VM> SharedCache::GetVMMap(bool mapPages)
@@ -979,10 +1008,10 @@ void SharedCache::DeserializeFromRawView()
 {
 	if (m_dscView->QueryMetadata(SharedCacheMetadataTag))
 	{
-		std::unique_lock<std::recursive_mutex> viewStateCacheLock(viewStateMutex);
-		if (viewStateCache.find(m_dscView->GetFile()->GetSessionId()) != viewStateCache.end())
+		std::lock_guard lock(m_viewSpecificState->stateMutex);
+		if (m_viewSpecificState->state.has_value())
 		{
-			auto c = viewStateCache[m_dscView->GetFile()->GetSessionId()];
+			const auto& c = *m_viewSpecificState->state;
 			m_imageStarts = c.m_imageStarts;
 			m_cacheFormat = c.m_cacheFormat;
 			m_backingCaches = c.m_backingCaches;
@@ -1351,7 +1380,7 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 }
 
 
-SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_dscView(dscView)
+SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_dscView(dscView), m_viewSpecificState(ViewSpecificStateForView(dscView))
 {
 	if (dscView->GetTypeName() != VIEW_NAME)
 	{
@@ -1365,53 +1394,44 @@ SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_
 	DeserializeFromRawView();
 	if (!m_metadataValid)
 		return;
-	if (m_viewState == DSCViewStateUnloaded)
-	{
-		if (m_viewState == DSCViewStateUnloaded)
-		{
-			std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
-			try {
-				PerformInitialLoad();
-			}
-			catch (...)
-			{
-				m_logger->LogError("Failed to perform initial load of Shared Cache");
-			}
+	if (m_viewState != DSCViewStateUnloaded) {
+		m_viewSpecificState->progress = LoadProgressFinished;
+		return;
+	}
 
-			auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
-			bool autoLoadLibsystem = true;
-			if (settings && settings->Contains("loader.dsc.autoLoadLibSystem"))
+	std::unique_lock lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
+	try {
+		PerformInitialLoad();
+	}
+	catch (...)
+	{
+		m_logger->LogError("Failed to perform initial load of Shared Cache");
+	}
+
+	auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
+	bool autoLoadLibsystem = true;
+	if (settings && settings->Contains("loader.dsc.autoLoadLibSystem"))
+	{
+		autoLoadLibsystem = settings->Get<bool>("loader.dsc.autoLoadLibSystem", m_dscView);
+	}
+	if (autoLoadLibsystem)
+	{
+		for (const auto& [_, header] : m_headers)
+		{
+			if (header.installName.find("libsystem_c.dylib") != std::string::npos)
 			{
-				autoLoadLibsystem = settings->Get<bool>("loader.dsc.autoLoadLibSystem", m_dscView);
+				lock.unlock();
+				m_logger->LogInfo("Loading core libsystem_c.dylib library");
+				LoadImageWithInstallName(header.installName);
+				break;
 			}
-			if (autoLoadLibsystem)
-			{
-				for (const auto& [_, header] : m_headers)
-				{
-					if (header.installName.find("libsystem_c.dylib") != std::string::npos)
-					{
-						lock.unlock();
-						m_logger->LogInfo("Loading core libsystem_c.dylib library");
-						LoadImageWithInstallName(header.installName);
-						lock.lock();
-						break;
-					}
-				}
-			}
-			m_viewState = DSCViewStateLoaded;
-			SaveToDSCView();
 		}
 	}
-	else
-	{
-		progressMutex.lock();
-		progressMap[m_dscView->GetFile()->GetSessionId()] = LoadProgressFinished;
-		progressMutex.unlock();
-	}
+	m_viewState = DSCViewStateLoaded;
+	SaveToDSCView();
 }
 
 SharedCache::~SharedCache() {
-	std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
 	sharedCacheReferences--;
 }
 
@@ -1524,7 +1544,7 @@ bool SharedCache::LoadImageContainingAddress(uint64_t address)
 
 bool SharedCache::LoadSectionAtAddress(uint64_t address)
 {
-	std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
+	std::unique_lock lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
 	DeserializeFromRawView();
 	auto vm = GetVMMap();
 	if (!vm)
@@ -1717,7 +1737,7 @@ bool SharedCache::LoadImageWithInstallName(std::string installName)
 {
 	auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
 
-	std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
+	std::unique_lock lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
 
 	DeserializeFromRawView();
 	m_logger->LogInfo("Loading image %s", installName.c_str());
@@ -1785,7 +1805,7 @@ bool SharedCache::LoadImageWithInstallName(std::string installName)
 		return false;
 	}
 
-	std::unique_lock<std::mutex> typelibLock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].typeLibraryLookupAndApplicationMutex);
+	std::unique_lock typelibLock(m_viewSpecificState->typeLibraryMutex);
 	auto typeLib = m_dscView->GetTypeLibrary(header.installName);
 
 	if (!typeLib)
@@ -2792,7 +2812,7 @@ std::vector<std::string> SharedCache::GetAvailableImages()
 
 std::vector<std::pair<std::string, Ref<Symbol>>> SharedCache::LoadAllSymbolsAndWait()
 {
-	std::unique_lock<std::mutex> initialLoadBlock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
+	std::unique_lock initialLoadBlock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
 
 	std::vector<std::pair<std::string, Ref<Symbol>>> symbols;
 	for (const auto& img : m_images)
@@ -2885,7 +2905,7 @@ void SharedCache::FindSymbolAtAddrAndApplyToAddr(uint64_t symbolLocation, uint64
 		}
 		auto exportList = SharedCache::ParseExportTrie(mapping, *header);
 		std::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>> exportMapping;
-		std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].typeLibraryLookupAndApplicationMutex);
+		std::unique_lock lock(m_viewSpecificState->typeLibraryMutex);
 		auto typeLib = m_dscView->GetTypeLibrary(header->installName);
 		if (!typeLib)
 		{
@@ -2932,7 +2952,7 @@ void SharedCache::FindSymbolAtAddrAndApplyToAddr(uint64_t symbolLocation, uint64
 			}
 		}
 		{
-			std::unique_lock<std::mutex> _lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
+			std::lock_guard lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
 			m_exportInfos[header->textBase] = exportMapping;
 		}
 		m_dscView->EndBulkModifySymbols();
@@ -2948,7 +2968,7 @@ bool SharedCache::SaveToDSCView()
 		auto data = AsMetadata();
 		m_dscView->StoreMetadata(SharedCacheMetadataTag, data);
 		m_dscView->GetParentView()->GetParentView()->StoreMetadata(SharedCacheMetadataTag, data);
-		std::unique_lock<std::recursive_mutex> viewStateCacheLock(viewStateMutex);
+		std::lock_guard lock(m_viewSpecificState->stateMutex);
 		ViewStateCacheStore c;
 		c.m_imageStarts = m_imageStarts;
 		c.m_cacheFormat = m_cacheFormat;
@@ -2963,7 +2983,7 @@ bool SharedCache::SaveToDSCView()
 		c.m_baseFilePath = m_baseFilePath;
 		c.m_exportInfos = m_exportInfos;
 		c.m_symbolInfos = m_symbolInfos;
-		viewStateCache[m_dscView->GetFile()->GetSessionId()] = c;
+		m_viewSpecificState->state = std::move(c);
 
 		m_metadataValid = true;
 
@@ -2973,7 +2993,7 @@ bool SharedCache::SaveToDSCView()
 }
 std::vector<MemoryRegion> SharedCache::GetMappedRegions() const
 {
-	std::unique_lock<std::mutex> lock(viewSpecificMutexes[m_dscView->GetFile()->GetSessionId()].viewOperationsThatInfluenceMetadataMutex);
+	std::unique_lock<std::mutex> lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
 	return m_regionsMappedIntoMemory;
 }
 
@@ -3287,15 +3307,11 @@ extern "C"
 
 	BNDSCViewLoadProgress BNDSCViewGetLoadProgress(uint64_t sessionID)
 	{
-		progressMutex.lock();
-		if (progressMap.find(sessionID) == progressMap.end())
-		{
-			progressMutex.unlock();
-			return LoadProgressNotStarted;
+		if (auto viewSpecificState = ViewSpecificStateForId(sessionID, false)) {
+			return viewSpecificState->progress;
 		}
-		auto progress = progressMap[sessionID];
-		progressMutex.unlock();
-		return progress;
+
+		return LoadProgressNotStarted;
 	}
 
 	uint64_t BNDSCViewFastGetBackingCacheCount(BNBinaryView* data)

@@ -1108,6 +1108,8 @@ namespace SharedCacheCore {
 			m_metadataValid = true;
 		}
 
+		struct ViewSpecificState;
+
 	private:
 		Ref<Logger> m_logger;
 		/* VIEW STATE BEGIN -- SERIALIZE ALL OF THIS AND STORE IT IN RAW VIEW */
@@ -1140,6 +1142,7 @@ namespace SharedCacheCore {
 		std::vector<MemoryRegion> m_nonImageRegions;
 
 		/* VIEWSTATE END -- NOTHING PAST THIS IS SERIALIZED */
+		std::shared_ptr<ViewSpecificState> m_viewSpecificState;
 
 		/* API VIEW START */
 		BinaryNinja::Ref<BinaryNinja::BinaryView> m_dscView;
