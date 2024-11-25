@@ -73,6 +73,7 @@ struct ViewStateCacheStore {
 
 	std::unordered_map<uint64_t, std::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>>> m_exportInfos;
 	std::unordered_map<uint64_t, std::vector<std::pair<uint64_t, std::pair<BNSymbolType, std::string>>>> m_symbolInfos;
+	std::optional<std::pair<size_t, size_t>> m_objcOptimizationDataRange;
 };
 
 static std::recursive_mutex viewStateMutex;
@@ -270,6 +271,10 @@ void SharedCache::PerformInitialLoad()
 		}
 		else
 			m_cacheFormat = iOS16CacheFormat;
+	}
+
+	if (primaryCacheHeader.objcOptsOffset && primaryCacheHeader.objcOptsSize) {
+		m_objcOptimizationDataRange = {primaryCacheHeader.objcOptsOffset, primaryCacheHeader.objcOptsSize};
 	}
 
 	switch (m_cacheFormat)
@@ -3287,4 +3292,42 @@ void InitDSCViewType()
 	BinaryViewType::Register(&type);
 	g_dscViewType = &type;
 	g_dscRawViewType = &rawType;
+}
+
+size_t SharedCache::GetBaseAddress() const {
+	if (m_backingCaches.empty()) {
+		return 0;
+	}
+
+	const BackingCache& primaryCache = m_backingCaches[0];
+	if (!primaryCache.isPrimary) {
+		abort();
+		return 0;
+	}
+
+	if (primaryCache.mappings.empty()) {
+		return 0;
+	}
+
+	return primaryCache.mappings[0].address;
+}
+
+// Intentionally takes a copy to avoid modifying the cursor position in the original reader.
+std::optional<ObjCOptimizationHeader> SharedCache::GetObjCOptimizationHeader(VMReader reader) const {
+	if (!m_objcOptimizationDataRange) {
+		return {};
+	}
+
+	ObjCOptimizationHeader header{};
+	// Ignoring `objcOptsSize` in favor of `sizeof(ObjCOptimizationHeader)` matches dyld's behavior.
+	reader.Read(&header, GetBaseAddress() + m_objcOptimizationDataRange->first, sizeof(ObjCOptimizationHeader));
+
+	return header;
+}
+
+size_t SharedCache::GetObjCRelativeMethodBaseAddress(const VMReader& reader) const {
+	if (auto header = GetObjCOptimizationHeader(reader); header.has_value()) {
+		return GetBaseAddress() + header->relativeMethodSelectorBaseAddressOffset;
+	}
+	return 0;
 }
