@@ -222,7 +222,7 @@ namespace DSCObjC {
 		void GenerateClassTypes();
 		bool ApplyMethodType(Class& cls, Method& method, bool isInstanceMethod);
 		void ApplyMethodTypes(Class& cls);
-		void PostProcessObjCSections(VMReader* reader, std::string baseName);
+		void PostProcessObjCSections(VMReader* reader);
 	public:
 		DSCObjCProcessor(BinaryView* data, SharedCacheCore::SharedCache* cache, bool isBackedByDatabase);
 		void ProcessObjCData(std::shared_ptr<VM> vm, std::string baseName);
