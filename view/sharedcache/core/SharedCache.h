@@ -91,26 +91,6 @@ namespace SharedCacheCore {
 		}
 	};
 
-	struct BackingCache : public MetadataSerializable
-	{
-		std::string path;
-		bool isPrimary = false;
-		std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>> mappings;
-
-		void Store() override
-		{
-			MSS(path);
-			MSS(isPrimary);
-			MSS(mappings);
-		}
-		void Load() override
-		{
-			MSL(path);
-			MSL(isPrimary);
-			MSL(mappings);
-		}
-	};
-
 	#if defined(__GNUC__) || defined(__clang__)
 		#define PACKED_STRUCT __attribute__((packed))
 	#else
@@ -130,6 +110,60 @@ namespace SharedCacheCore {
 		uint64_t fileOffset;
 		uint32_t maxProt;
 		uint32_t initProt;
+	};
+
+	struct BackingCache : public MetadataSerializable
+	{
+		std::string path;
+		bool isPrimary = false;
+		std::vector<dyld_cache_mapping_info> mappings;
+
+		void Store()
+		{
+			MSS(path);
+			MSS(isPrimary);
+			MSS_SUBCLASS(mappings);
+		}
+		void Load()
+		{
+			MSL(path);
+			MSL(isPrimary);
+			MSL_SUBCLASS(mappings);
+		}
+
+		void Serialize(const std::string& name, const std::vector<dyld_cache_mapping_info>& mappings)
+		{
+			S();
+			rapidjson::Value key(name.c_str(), m_activeContext.allocator);
+			rapidjson::Value mappingsArr(rapidjson::kArrayType);
+			for (auto& mapping : mappings)
+			{
+				rapidjson::Value mappingArr(rapidjson::kArrayType);
+				mappingArr.PushBack(mapping.address, m_activeContext.allocator);
+				mappingArr.PushBack(mapping.size, m_activeContext.allocator);
+				mappingArr.PushBack(mapping.fileOffset, m_activeContext.allocator);
+				mappingArr.PushBack(mapping.maxProt, m_activeContext.allocator);
+				mappingArr.PushBack(mapping.initProt, m_activeContext.allocator);
+				mappingsArr.PushBack(mappingArr, m_activeContext.allocator);
+			}
+			m_activeContext.doc.AddMember(key, mappingsArr, m_activeContext.allocator);
+		}
+
+		void Deserialize(const std::string& name, std::vector<dyld_cache_mapping_info>& b)
+		{
+			auto bArr = m_activeDeserContext.doc[name.data()].GetArray();
+			for (auto& s : bArr)
+			{
+				dyld_cache_mapping_info mapping;
+				auto s2 = s.GetArray();
+				mapping.address = s2[0].GetUint();
+				mapping.size = s2[1].GetUint();
+				mapping.fileOffset = s2[2].GetUint();
+				mapping.maxProt = s2[3].GetUint();
+				mapping.initProt = s2[4].GetUint();
+				b.push_back(mapping);
+			}
+		}
 	};
 
 	struct LoadedMapping

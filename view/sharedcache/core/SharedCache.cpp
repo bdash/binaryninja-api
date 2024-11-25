@@ -94,6 +94,24 @@ std::string base_name(std::string const& path)
 	return path.substr(path.find_last_of("/\\") + 1);
 }
 
+BNSegmentFlag SegmentFlagsFromMachOProtections(int initProt, int maxProt) {
+
+	uint32_t flags = 0;
+	if (initProt & MACHO_VM_PROT_READ)
+		flags |= SegmentReadable;
+	if (initProt & MACHO_VM_PROT_WRITE)
+		flags |= SegmentWritable;
+	if (initProt & MACHO_VM_PROT_EXECUTE)
+		flags |= SegmentExecutable;
+	if (((initProt & MACHO_VM_PROT_WRITE) == 0) &&
+		((maxProt & MACHO_VM_PROT_WRITE) == 0))
+		flags |= SegmentDenyWrite;
+	if (((initProt & MACHO_VM_PROT_EXECUTE) == 0) &&
+		((maxProt & MACHO_VM_PROT_EXECUTE) == 0))
+		flags |= SegmentDenyExecute;
+	return (BNSegmentFlag)flags;
+}
+
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-function"
@@ -266,11 +284,7 @@ void SharedCache::PerformInitialLoad()
 		for (size_t i = 0; i < primaryCacheHeader.mappingCount; i++)
 		{
 			baseFile->Read(&mapping, primaryCacheHeader.mappingOffset + (i * sizeof(mapping)), sizeof(mapping));
-			std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-			mapRawToAddrAndSize.first = mapping.fileOffset;
-			mapRawToAddrAndSize.second.first = mapping.address;
-			mapRawToAddrAndSize.second.second = mapping.size;
-			cache.mappings.push_back(mapRawToAddrAndSize);
+			cache.mappings.push_back(mapping);
 		}
 		m_backingCaches.push_back(cache);
 
@@ -334,11 +348,7 @@ void SharedCache::PerformInitialLoad()
 		for (size_t i = 0; i < primaryCacheHeader.mappingCount; i++)
 		{
 			baseFile->Read(&mapping, primaryCacheHeader.mappingOffset + (i * sizeof(mapping)), sizeof(mapping));
-			std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-			mapRawToAddrAndSize.first = mapping.fileOffset;
-			mapRawToAddrAndSize.second.first = mapping.address;
-			mapRawToAddrAndSize.second.second = mapping.size;
-			cache.mappings.push_back(mapRawToAddrAndSize);
+			cache.mappings.push_back(mapping);
 		}
 		m_backingCaches.push_back(cache);
 
@@ -409,11 +419,7 @@ void SharedCache::PerformInitialLoad()
 			{
 				subCacheFile->Read(&subCacheMapping, subCacheHeader.mappingOffset + (j * sizeof(subCacheMapping)),
 					sizeof(subCacheMapping));
-				std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-				mapRawToAddrAndSize.first = subCacheMapping.fileOffset;
-				mapRawToAddrAndSize.second.first = subCacheMapping.address;
-				mapRawToAddrAndSize.second.second = subCacheMapping.size;
-				subCache.mappings.push_back(mapRawToAddrAndSize);
+				subCache.mappings.push_back(subCacheMapping);
 			}
 
 			if (subCacheHeader.mappingCount == 1 && subCacheHeader.imagesCountOld == 0 && subCacheHeader.imagesCount == 0
@@ -445,11 +451,7 @@ void SharedCache::PerformInitialLoad()
 		for (size_t i = 0; i < primaryCacheHeader.mappingCount; i++)
 		{
 			baseFile->Read(&mapping, primaryCacheHeader.mappingOffset + (i * sizeof(mapping)), sizeof(mapping));
-			std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-			mapRawToAddrAndSize.first = mapping.fileOffset;
-			mapRawToAddrAndSize.second.first = mapping.address;
-			mapRawToAddrAndSize.second.second = mapping.size;
-			cache.mappings.push_back(mapRawToAddrAndSize);
+			cache.mappings.push_back(mapping);
 		}
 		m_backingCaches.push_back(cache);
 
@@ -504,11 +506,7 @@ void SharedCache::PerformInitialLoad()
 			{
 				subCacheFile->Read(&subCacheMapping, subCacheHeader.mappingOffset + (j * sizeof(subCacheMapping)),
 					sizeof(subCacheMapping));
-				std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-				mapRawToAddrAndSize.first = subCacheMapping.fileOffset;
-				mapRawToAddrAndSize.second.first = subCacheMapping.address;
-				mapRawToAddrAndSize.second.second = subCacheMapping.size;
-				subCache.mappings.push_back(mapRawToAddrAndSize);
+				subCache.mappings.push_back(subCacheMapping);
 			}
 
 			m_backingCaches.push_back(subCache);
@@ -550,11 +548,7 @@ void SharedCache::PerformInitialLoad()
 		{
 			subCacheFile->Read(&subCacheMapping, subCacheHeader.mappingOffset + (j * sizeof(subCacheMapping)),
 				sizeof(subCacheMapping));
-			std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-			mapRawToAddrAndSize.first = subCacheMapping.fileOffset;
-			mapRawToAddrAndSize.second.first = subCacheMapping.address;
-			mapRawToAddrAndSize.second.second = subCacheMapping.size;
-			subCache.mappings.push_back(mapRawToAddrAndSize);
+			subCache.mappings.push_back(subCacheMapping);
 		}
 
 		m_backingCaches.push_back(subCache);
@@ -571,11 +565,7 @@ void SharedCache::PerformInitialLoad()
 		for (size_t i = 0; i < primaryCacheHeader.mappingCount; i++)
 		{
 			baseFile->Read(&mapping, primaryCacheHeader.mappingOffset + (i * sizeof(mapping)), sizeof(mapping));
-			std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-			mapRawToAddrAndSize.first = mapping.fileOffset;
-			mapRawToAddrAndSize.second.first = mapping.address;
-			mapRawToAddrAndSize.second.second = mapping.size;
-			cache.mappings.push_back(mapRawToAddrAndSize);
+			cache.mappings.push_back(mapping);
 		}
 
 		m_backingCaches.push_back(cache);
@@ -652,12 +642,7 @@ void SharedCache::PerformInitialLoad()
 			{
 				subCacheFile->Read(&subCacheMapping, subCacheHeader.mappingOffset + (j * sizeof(subCacheMapping)),
 					sizeof(subCacheMapping));
-
-				std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-				mapRawToAddrAndSize.first = subCacheMapping.fileOffset;
-				mapRawToAddrAndSize.second.first = subCacheMapping.address;
-				mapRawToAddrAndSize.second.second = subCacheMapping.size;
-				subCache.mappings.push_back(mapRawToAddrAndSize);
+				subCache.mappings.push_back(subCacheMapping);
 
 				if (subCachePath.find(".dylddata") != std::string::npos)
 				{
@@ -714,11 +699,7 @@ void SharedCache::PerformInitialLoad()
 			{
 				subCacheFile->Read(&subCacheMapping, subCacheHeader.mappingOffset + (j * sizeof(subCacheMapping)),
 					sizeof(subCacheMapping));
-				std::pair<uint64_t, std::pair<uint64_t, uint64_t>> mapRawToAddrAndSize;
-				mapRawToAddrAndSize.first = subCacheMapping.fileOffset;
-				mapRawToAddrAndSize.second.first = subCacheMapping.address;
-				mapRawToAddrAndSize.second.second = subCacheMapping.size;
-				subCache.mappings.push_back(mapRawToAddrAndSize);
+				subCache.mappings.push_back(subCacheMapping);
 			}
 
 			m_backingCaches.push_back(subCache);
@@ -765,19 +746,7 @@ void SharedCache::PerformInitialLoad()
 					sectionRegion.prettyName = imageHeader.value().identifierPrefix + "::" + std::string(segName);
 					sectionRegion.start = segment.vmaddr;
 					sectionRegion.size = segment.vmsize;
-					uint32_t flags = 0;
-					if (segment.initprot & MACHO_VM_PROT_READ)
-						flags |= SegmentReadable;
-					if (segment.initprot & MACHO_VM_PROT_WRITE)
-						flags |= SegmentWritable;
-					if (segment.initprot & MACHO_VM_PROT_EXECUTE)
-						flags |= SegmentExecutable;
-					if (((segment.initprot & MACHO_VM_PROT_WRITE) == 0) &&
-						((segment.maxprot & MACHO_VM_PROT_WRITE) == 0))
-						flags |= SegmentDenyWrite;
-					if (((segment.initprot & MACHO_VM_PROT_EXECUTE) == 0) &&
-						((segment.maxprot & MACHO_VM_PROT_EXECUTE) == 0))
-						flags |= SegmentDenyExecute;
+					uint32_t flags = SegmentFlagsFromMachOProtections(segment.initprot, segment.maxprot);
 
 					// if we're positive we have an entry point for some reason, force the segment
 					// executable. this helps with kernel images.
@@ -809,12 +778,11 @@ void SharedCache::PerformInitialLoad()
 		for (const auto& mapping : cache.mappings)
 		{
 			MemoryRegion region;
-			region.start = mapping.second.first;
-			region.size = mapping.second.second;
+			region.start = mapping.address;
+			region.size = mapping.size;
 			region.prettyName = base_name(cache.path) + "::" + std::to_string(i);
-			// FIXME flags!!! BackingCache.mapping needs refactored to store this information!
-			region.flags = (BNSegmentFlag)(BNSegmentFlag::SegmentReadable | BNSegmentFlag::SegmentExecutable);
-			m_nonImageRegions.push_back(region);
+			region.flags = SegmentFlagsFromMachOProtections(mapping.initProt, mapping.maxProt);
+			m_nonImageRegions.push_back(std::move(region));
 			i++;
 		}
 	}
@@ -963,7 +931,7 @@ std::shared_ptr<VM> SharedCache::GetVMMap(bool mapPages)
 		{
 			for (const auto& mapping : cache.mappings)
 			{
-				vm->MapPages(m_dscView, m_dscView->GetFile()->GetSessionId(), mapping.second.first, mapping.first, mapping.second.second, cache.path,
+				vm->MapPages(m_dscView, m_dscView->GetFile()->GetSessionId(), mapping.address, mapping.fileOffset, mapping.size, cache.path,
 					[this, vm=vm](std::shared_ptr<MMappedFileAccessor> mmap){
 						ParseAndApplySlideInfoForFile(mmap);
 					});
@@ -1038,9 +1006,9 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 	{
 		for (const auto& mapping : backingCache.mappings)
 		{
-			if (mapping.second.first < base)
+			if (mapping.address < base)
 			{
-				base = mapping.second.first;
+				base = mapping.address;
 				break;
 			}
 		}
@@ -1654,7 +1622,7 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				m_dscView->GetParentView()->WriteBuffer(rawViewEnd, buff);
 				m_dscView->GetParentView()->AddAutoSegment(rawViewEnd, region.size, rawViewEnd, region.size, region.flags);
 				m_dscView->AddUserSegment(region.start, region.size, rawViewEnd, region.size, region.flags);
-				m_dscView->AddUserSection(name, region.start, region.size, ReadOnlyCodeSectionSemantics);
+				m_dscView->AddUserSection(name, region.start, region.size, region.flags & SegmentDenyExecute ? ReadOnlyDataSectionSemantics : ReadOnlyCodeSectionSemantics);
 				m_dscView->WriteBuffer(region.start, buff);
 
 				region.loaded = true;
@@ -3174,11 +3142,11 @@ extern "C"
 				mappings = (BNDSCBackingCacheMapping*)malloc(sizeof(BNDSCBackingCacheMapping) * viewCaches[i].mappings.size());
 
 				size_t j = 0;
-				for (const auto& [fileOffset, mapping] : viewCaches[i].mappings)
+				for (const auto& mapping : viewCaches[i].mappings)
 				{
-					mappings[j].vmAddress = mapping.first;
-					mappings[j].size = mapping.second;
-					mappings[j].fileOffset = fileOffset;
+					mappings[j].vmAddress = mapping.address;
+					mappings[j].size = mapping.size;
+					mappings[j].fileOffset = mapping.fileOffset;
 					j++;
 				}
 				caches[i].mappings = mappings;
