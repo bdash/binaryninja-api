@@ -65,7 +65,7 @@ message(STATUS "RCD: ${BN_REF_COUNT_DEBUG}")
 get_recursive_include_dirs(binaryninjaapi INCLUDES)
 
 target_include_directories(sharedcacheworkflow
-        PUBLIC ${PROJECT_SOURCE_DIR} ${INCLUDES})
+        PUBLIC ${PROJECT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer)
 
 set_target_properties(sharedcacheworkflow PROPERTIES
         CXX_STANDARD 17
