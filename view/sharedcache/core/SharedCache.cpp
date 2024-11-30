@@ -1065,6 +1065,15 @@ void SharedCache::DeserializeFromRawView()
 		else
 		{
 			LoadFromString(m_dscView->GetStringMetadata(SharedCacheMetadataTag));
+
+			if (m_metadataValid)
+			{
+				cachedState = std::make_shared<struct State>(std::move(*m_state));
+				m_state = cachedState;
+				m_stateIsShared = true;
+
+				m_viewSpecificState->SetCachedState(std::move(cachedState));
+			}
 		}
 		if (!m_metadataValid)
 		{
