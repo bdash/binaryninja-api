@@ -3,8 +3,11 @@
 //
 
 #include <binaryninjaapi.h>
-#include "DSCView.h"
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
 #include "VM.h"
+#include "binaryninjacore.h"
 #include "view/macho/machoview.h"
 #include "MetadataSerializable.hpp"
 #include "../api/sharedcachecore.h"
@@ -23,36 +26,44 @@ namespace SharedCacheCore {
 		DSCViewStateLoadedWithImages,
 	};
 
-	const std::string SharedCacheMetadataTag = "SHAREDCACHE-SharedCacheData";
-
 	struct MemoryRegion : public MetadataSerializable<MemoryRegion>
 	{
+		enum class Type {
+			Image,
+			StubIsland,
+			DyldData,
+			NonImage,
+		};
+
 		std::string prettyName;
 		uint64_t start;
 		uint64_t size;
-		bool loaded = false;
-		uint64_t rawViewOffsetIfLoaded = 0;
-		bool headerInitialized = false;
 		BNSegmentFlag flags;
+		Type type;
+
+
+		AddressRange AsAddressRange() const {
+			return { start, start + size };
+		}
 
 		void Store(SerializationContext& context) const
 		{
 			MSS(prettyName);
 			MSS(start);
 			MSS(size);
-			MSS(loaded);
-			MSS(rawViewOffsetIfLoaded);
 			MSS_CAST(flags, uint64_t);
+			MSS_CAST(type, uint8_t);
 		}
 
-		void Load(DeserializationContext& context)
+		static MemoryRegion Load(DeserializationContext& context)
 		{
-			MSL(prettyName);
-			MSL(start);
-			MSL(size);
-			MSL(loaded);
-			MSL(rawViewOffsetIfLoaded);
-			MSL_CAST(flags, uint64_t, BNSegmentFlag);
+			return MemoryRegion {
+				.MSL(prettyName),
+				.MSL(start),
+				.MSL(size),
+				.MSL_CAST(flags, uint64_t, BNSegmentFlag),
+				.MSL_CAST(type, uint8_t, Type),
+			};
 		}
 	};
 
@@ -60,34 +71,10 @@ namespace SharedCacheCore {
 	{
 		std::string installName;
 		uint64_t headerLocation;
-		std::vector<MemoryRegion> regions;
+		std::vector<const MemoryRegion*> regions;
 
-		void Store(SerializationContext& context) const
-		{
-			MSS(installName);
-			MSS(headerLocation);
-			Serialize(context, "regions");
-			context.writer.StartArray();
-			for (auto& region : regions)
-			{
-				Serialize(context, region.AsString());
-			}
-			context.writer.EndArray();
-		}
-
-		void Load(DeserializationContext& context)
-		{
-			MSL(installName);
-			MSL(headerLocation);
-			auto bArr = context.doc["regions"].GetArray();
-			regions.clear();
-			for (auto& region : bArr)
-			{
-				MemoryRegion r;
-				r.LoadFromString(region.GetString());
-				regions.push_back(r);
-			}
-		}
+		void Store(SerializationContext& context) const;
+		static CacheImage Load(DeserializationContext& context, const AddressRangeMap<MemoryRegion>& memoryRegions);
 	};
 
 	#if defined(__GNUC__) || defined(__clang__)
@@ -118,7 +105,7 @@ namespace SharedCacheCore {
 		std::vector<dyld_cache_mapping_info> mappings;
 
 		void Store(SerializationContext& context) const;
-		void Load(DeserializationContext& context);
+		static BackingCache Load(DeserializationContext& context);
 	};
 
 	struct LoadedMapping
@@ -473,42 +460,45 @@ namespace SharedCacheCore {
 			MSS(functionStartsPresent);
 			MSS(relocatable);
 		}
-		void Load(DeserializationContext& context)
+
+		static SharedCacheMachOHeader Load(DeserializationContext& context)
 		{
-			MSL(textBase);
-			MSL(loadCommandOffset);
-			MSL_SUBCLASS(ident);
-			MSL(identifierPrefix);
-			MSL(installName);
-			MSL(entryPoints);
-			MSL(m_entryPoints);
-			MSL_SUBCLASS(symtab);
-			MSL_SUBCLASS(dysymtab);
-			MSL_SUBCLASS(dyldInfo);
-			// MSL_SUBCLASS(routines64); // FIXME CRASH but also do we even use this?
-			MSL_SUBCLASS(functionStarts);
-			MSL_SUBCLASS(moduleInitSections);
-			MSL_SUBCLASS(exportTrie);
-			MSL_SUBCLASS(chainedFixups);
-			MSL(relocationBase);
-			MSL_SUBCLASS(segments);
-			MSL_SUBCLASS(linkeditSegment);
-			MSL_SUBCLASS(sections);
-			MSL(sectionNames);
-			MSL_SUBCLASS(symbolStubSections);
-			MSL_SUBCLASS(symbolPointerSections);
-			MSL(dylibs);
-			MSL_SUBCLASS(buildVersion);
-			MSL_SUBCLASS(buildToolVersions);
-			MSL(linkeditPresent);
-			MSL(exportTriePath);
-			MSL(dysymPresent);
-			MSL(dyldInfoPresent);
-			MSL(exportTriePresent);
-			MSL(chainedFixupsPresent);
-			// MSL(routinesPresent);
-			MSL(functionStartsPresent);
-			MSL(relocatable);
+			return SharedCacheMachOHeader {
+				.MSL(textBase),
+				.MSL(loadCommandOffset),
+				.MSL(ident),
+				.MSL(identifierPrefix),
+				.MSL(installName),
+				.MSL(entryPoints),
+				.MSL(m_entryPoints),
+				.MSL(symtab),
+				.MSL(dysymtab),
+				.MSL(dyldInfo),
+				// .MSL(routines64), // FIXME CRASH but also do we even use this?
+				.MSL(functionStarts),
+				.MSL(moduleInitSections),
+				.MSL(exportTrie),
+				.MSL(chainedFixups),
+				.MSL(relocationBase),
+				.MSL(segments),
+				.MSL(linkeditSegment),
+				.MSL(sections),
+				.MSL(sectionNames),
+				.MSL(symbolStubSections),
+				.MSL(symbolPointerSections),
+				.MSL(dylibs),
+				.MSL(buildVersion),
+				.MSL(buildToolVersions),
+				.MSL(linkeditPresent),
+				.MSL(exportTriePath),
+				.MSL(dysymPresent),
+				.MSL(dyldInfoPresent),
+				.MSL(exportTriePresent),
+				.MSL(chainedFixupsPresent),
+				// .MSL(routinesPresent);
+				.MSL(functionStartsPresent),
+				.MSL(relocatable),
+			};
 		}
 	};
 
@@ -528,7 +518,7 @@ namespace SharedCacheCore {
 
 	static std::atomic<uint64_t> sharedCacheReferences = 0;
 
-	class SharedCache : public MetadataSerializable<SharedCache>
+	class SharedCache
 	{
 		IMPLEMENT_SHAREDCACHE_API_OBJECT(BNSharedCache);
 
@@ -560,10 +550,16 @@ namespace SharedCacheCore {
 			iOS16CacheFormat,
 		};
 
-		void Store(SerializationContext& context) const;
-		void Load(DeserializationContext& context);
+		struct SymbolInfo {
+			std::string name;
+			uint64_t offset;
+			BNSymbolType type;
 
-		struct State;
+			Ref<Symbol> AsSymbol() const { return new Symbol(type, name, offset); }
+		};
+
+		struct CacheInfo;
+		struct ModifiedState;
 
 		struct ViewSpecificState;
 
@@ -571,11 +567,18 @@ namespace SharedCacheCore {
 		Ref<Logger> m_logger;
 		/* VIEW STATE BEGIN -- SERIALIZE ALL OF THIS AND STORE IT IN RAW VIEW */
 
-		// Updated as the view is loaded further, more images are added, etc
-		// NOTE: Access via `State()` or `MutableState()` below.
-		// `WillMutateState()` must be called before the first access to `MutableState()`.
-		std::shared_ptr<State> m_state;
-		bool m_stateIsShared = false;
+		// State that is initialized during `PerformInitialLoad` and does
+		// not change thereafter.
+		std::shared_ptr<const CacheInfo> m_cacheInfo;
+
+		// Protects member variables below.
+		mutable std::mutex m_mutex;
+
+		// State that has been modified since this instance was created
+		// or last saved to the view-specific state.
+		// To get an accurate view of the current state, both these modifications
+		// and the view-specific state must be consulted.
+		std::unique_ptr<ModifiedState> m_modifiedState;
 
 		// Serialized once by PerformInitialLoad and available after m_viewState == Loaded
 		bool m_metadataValid = false;
@@ -588,19 +591,21 @@ namespace SharedCacheCore {
 		/* API VIEW END */
 
 	private:
-		void PerformInitialLoad();
-		void DeserializeFromRawView();
+		void PerformInitialLoad(std::lock_guard<std::mutex>&);
+		void DeserializeFromRawView(std::lock_guard<std::mutex>&);
 
 	public:
-		std::shared_ptr<VM> GetVMMap(bool mapPages = true);
+		std::shared_ptr<VM> GetVMMap();
+		std::shared_ptr<VM> GetVMMap(const CacheInfo& staticState);
 
 		static SharedCache* GetFromDSCView(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView);
 		static uint64_t FastGetBackingCacheCount(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView);
-		bool SaveToDSCView();
+		bool SaveCacheInfoToDSCView(std::lock_guard<std::mutex>&);
+		bool SaveModifiedStateToDSCView(std::lock_guard<std::mutex>&);
 
 		void ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file);
 		std::optional<uint64_t> GetImageStart(std::string installName);
-		std::optional<SharedCacheMachOHeader> HeaderForAddress(uint64_t);
+		const SharedCacheMachOHeader* HeaderForAddress(uint64_t);
 		bool LoadImageWithInstallName(std::string installName, bool skipObjC);
 		bool LoadSectionAtAddress(uint64_t address);
 		bool LoadImageContainingAddress(uint64_t address, bool skipObjC);
@@ -610,10 +615,10 @@ namespace SharedCacheCore {
 		std::string ImageNameForAddress(uint64_t address);
 		std::vector<std::string> GetAvailableImages();
 
-		std::vector<MemoryRegion> GetMappedRegions() const;
+		std::vector<const MemoryRegion*> GetMappedRegions() const;
 		bool IsMemoryMapped(uint64_t address);
 
-		std::vector<std::pair<std::string, Ref<Symbol>>> LoadAllSymbolsAndWait();
+		std::unordered_map<std::string, std::vector<SymbolInfo>> LoadAllSymbolsAndWait();
 
 		const std::unordered_map<std::string, uint64_t>& AllImageStarts() const;
 		const std::unordered_map<uint64_t, SharedCacheMachOHeader>& AllImageHeaders() const;
@@ -636,28 +641,55 @@ private:
 		std::optional<SharedCacheMachOHeader> LoadHeaderForAddress(
 			std::shared_ptr<VM> vm, uint64_t address, std::string installName);
 		void InitializeHeader(
-			Ref<BinaryView> view, VM* vm, const SharedCacheMachOHeader& header, std::vector<MemoryRegion*> regionsToLoad);
+			std::lock_guard<std::mutex>& lock,
+			Ref<BinaryView> view, VM* vm, const SharedCacheMachOHeader& header, std::vector<const MemoryRegion*> regionsToLoad);
 		void ReadExportNode(std::vector<Ref<Symbol>>& symbolList, const SharedCacheMachOHeader& header, const uint8_t* begin,
 			const uint8_t *end, const uint8_t* current, uint64_t textBase, const std::string& currentText);
 		std::vector<Ref<Symbol>> ParseExportTrie(
 			std::shared_ptr<MMappedFileAccessor> linkeditFile, const SharedCacheMachOHeader& header);
+
+		void ProcessAllObjCSections(std::lock_guard<std::mutex>&);
+		bool LoadImageWithInstallName(std::lock_guard<std::mutex>&, std::string installName, bool skipObjC);
+
+		bool MemoryRegionIsLoaded(std::lock_guard<std::mutex>&, const MemoryRegion& region) const;
+		void SetMemoryRegionIsLoaded(std::lock_guard<std::mutex>&, const MemoryRegion& region);
+		bool MemoryRegionIsHeaderInitialized(std::lock_guard<std::mutex>&, const MemoryRegion& region) const;
+		void SetMemoryRegionHeaderInitialized(std::lock_guard<std::mutex>&, const MemoryRegion& region);
 
 		Ref<TypeLibrary> TypeLibraryForImage(const std::string& installName);
 
 		size_t GetBaseAddress() const;
 		std::optional<ObjCOptimizationHeader> GetObjCOptimizationHeader(VMReader reader) const;
 
-		const State& State() const { return *m_state; }
-		struct State& MutableState() { AssertMutable(); return *m_state; }
-
-		void AssertMutable() const;
-
-		// Ensures that the state is uniquely owned, copying it if it is not.
-		// Must be called before first access to `MutableState()` after the state
-		// is loaded from the cache. Can safely be called multiple times.
-		void WillMutateState();
+		std::shared_ptr<std::vector<SymbolInfo>> ExportInfoForHeader(const SharedCacheMachOHeader* header) const;
 	};
 
+	class SharedCacheMetadata {
+	public:
+		static std::optional<SharedCacheMetadata> LoadFromView(BinaryView*);
+		static bool ViewHasMetadata(BinaryView*);
+
+		const std::unordered_map<uint64_t, std::shared_ptr<std::vector<SharedCache::SymbolInfo>>>& ExportInfos() const;
+		std::string InstallNameForImageBaseAddress(uint64_t baseAddress) const;
+
+		~SharedCacheMetadata();
+		SharedCacheMetadata(SharedCacheMetadata&&);
+		SharedCacheMetadata& operator=(SharedCacheMetadata&&);
+
+	private:
+		SharedCacheMetadata(SharedCache::CacheInfo, SharedCache::ModifiedState);
+
+		std::unique_ptr<SharedCache::CacheInfo> cacheInfo;
+		std::unique_ptr<SharedCache::ModifiedState> state;
+
+		friend class SharedCache::ModifiedState;
+		friend class SharedCache;
+
+		static const std::string Tag;
+		static const std::string CacheInfoTag;
+		static const std::string ModifiedStateTagPrefix;
+		static const std::string ModifiedStateCountTag;
+	};
 }
 
 void InitDSCViewType();

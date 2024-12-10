@@ -34,6 +34,7 @@
  avoid that.
  * */
 
+#include <cassert>
 #include "binaryninjaapi.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
@@ -74,56 +75,54 @@ struct SerializationContext {
 struct DeserializationContext {
 	rapidjson::Document doc;
 
-	template <typename T>
-	T load(std::string_view x)
+	template <typename T, typename... Args>
+	T load(std::string_view x, Args&&... args)
 	{
 		T value;
-		Deserialize(*this, x, value);
+		Deserialize(*this, x, value, std::forward<Args>(args)...);
 		return value;
 	}
 };
 
-template <typename Derived>
+template <typename Derived, typename LoadResult = Derived>
 class MetadataSerializable
 {
 public:
-	std::string AsString() const
+	template <typename... Args>
+	std::string AsString(Args&&... args) const
 	{
 		SerializationContext context;
-		Store(context);
+		Store(context, std::forward<Args>(args)...);
 
 		return context.buffer.GetString();
 	}
 
-	void LoadFromString(const std::string& s)
+	template <typename... Args>
+	static LoadResult LoadFromString(const std::string& s, Args&&... args)
 	{
 		DeserializationContext context;
-		context.doc.Parse(s.c_str());
-		AsDerived().Load(context);
+		rapidjson::ParseResult result = context.doc.Parse(s.c_str());
+		assert(result);
+		return Derived::Load(context, std::forward<Args>(args)...);
 	}
 
-	void LoadFromValue(rapidjson::Value& s)
+	template <typename... Args>
+	static LoadResult LoadFromValue(rapidjson::Value& s, Args&&... args)
 	{
 		DeserializationContext context;
 		context.doc.CopyFrom(s, context.doc.GetAllocator());
-		AsDerived().Load(context);
+		return Derived::Load(context, std::forward<Args>(args)...);
 	}
 
-	Ref<Metadata> AsMetadata() {
-		return new Metadata(AsString());
+	template <typename... Args>
+	Ref<Metadata> AsMetadata(Args&&... args) const {
+		return new Metadata(AsString(std::forward<Args>(args)...));
 	}
 
-	bool LoadFromMetadata(const Ref<Metadata>& meta)
-	{
-		if (!meta->IsString())
-			return false;
-		LoadFromString(meta->GetString());
-		return true;
-	}
-
-	void Store(SerializationContext& context) const {
+	template <typename... Args>
+	void Store(SerializationContext& context, Args&&... args) const {
 		context.writer.StartObject();
-		AsDerived().Store(context);
+		AsDerived().Store(context, std::forward<Args>(args)...);
 		context.writer.EndObject();
 	}
 
@@ -158,8 +157,8 @@ void Serialize(SerializationContext& context, const std::pair<First, Second>& va
 	context.writer.EndArray();
 }
 
-template <typename K, typename V>
-void Serialize(SerializationContext& context, const std::map<K, V>& value)
+template <typename K, typename V, typename L>
+void Serialize(SerializationContext& context, const std::map<K, V, L>& value)
 {
 	context.writer.StartArray();
 	for (auto& pair : value)
@@ -191,6 +190,15 @@ void Serialize(SerializationContext& context, const std::vector<T>& values)
 	context.writer.EndArray();
 }
 
+template <typename T>
+void Serialize(SerializationContext& context, const std::optional<T>& value) {
+	if (value.has_value()) {
+		Serialize(context, *value);
+	} else {
+		context.writer.Null();
+	}
+}
+
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, const char*);
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, bool b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, bool& b);
@@ -210,6 +218,7 @@ SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int32_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int32_t& b);
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, int64_t b);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, int64_t& b);
+SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, unsigned long b);
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, std::string_view b);
 SHAREDCACHE_FFI_API void Serialize(SerializationContext& context, const std::pair<uint64_t, std::pair<uint64_t, uint64_t>>& value);
 SHAREDCACHE_FFI_API void Deserialize(DeserializationContext& context, std::string_view name, std::string& b);

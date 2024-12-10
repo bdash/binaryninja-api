@@ -218,9 +218,7 @@ namespace SharedCacheAPI {
 		BNFreeString(outputStr);
 		if (output.empty())
 			return {};
-		SharedCacheMachOHeader header;
-		header.LoadFromString(output);
-		return header;
+		return SharedCacheMachOHeader::LoadFromString(output);
 	}
 
 	BNDSCViewState SharedCache::GetState()
