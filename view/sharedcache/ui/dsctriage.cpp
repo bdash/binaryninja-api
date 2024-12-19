@@ -448,7 +448,6 @@ QVariant SymbolTableModel::headerData(int section, Qt::Orientation orientation, 
 }
 
 void SymbolTableModel::updateSymbols() {
-	m_symbols = m_parent->m_symbols;
 	setFilter(m_filter);
 }
 

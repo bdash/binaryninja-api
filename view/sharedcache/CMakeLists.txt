@@ -62,7 +62,7 @@ set_target_properties(sharedcache PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         )
 
-target_include_directories(sharedcache PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/core ${CMAKE_CURRENT_SOURCE_DIR}/api ${CMAKE_CURRENT_SOURCE_DIR}/workflow)
+target_include_directories(sharedcache PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/core ${CMAKE_CURRENT_SOURCE_DIR}/api ${CMAKE_CURRENT_SOURCE_DIR}/workflow  ${BN_API_PATH}/vendor/immer)
 
 target_link_libraries(sharedcache PUBLIC sharedcacheapi binaryninjaapi sharedcachecore sharedcacheworkflow)
 

@@ -140,6 +140,46 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		b.emplace_back(i.GetString());
 }
 
+void Deserialize(DeserializationContext& context, std::string_view name, immer::map<uint64_t, std::string>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+		transient.set(i.GetArray()[0].GetUint64(), i.GetArray()[1].GetString());
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::map<uint64_t, uint64_t>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+		transient.set(i.GetArray()[0].GetUint64(), i.GetArray()[1].GetUint64());
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::map<std::string, immer::map<uint64_t, uint64_t>>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+	{
+		std::string key = i.GetArray()[0].GetString();
+		immer::map_transient<uint64_t, uint64_t> memArray;
+		for (auto& member : i.GetArray()[1].GetArray())
+		{
+			memArray.set(member.GetArray()[0].GetUint64(), member.GetArray()[1].GetUint64());
+		}
+		transient.set(key, std::move(memArray).persistent());
+	}
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::map<std::string, std::string>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+		transient.set(i.GetArray()[0].GetString(), i.GetArray()[1].GetString());
+	b = std::move(transient).persistent();
+}
+
 // Note: This flattens the pair into [first, second.first, second.second] with no nested arrays.
 void Serialize(SerializationContext& context, const std::pair<uint64_t, std::pair<uint64_t, uint64_t>>& value)
 {
@@ -201,6 +241,77 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		}
 		b.push_back(j);
 	}
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<std::string>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+		transient.push_back(i.GetString());
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+	{
+		std::pair<uint64_t, std::pair<uint64_t, uint64_t>> j;
+		j.first = i.GetArray()[0].GetUint64();
+		j.second.first = i.GetArray()[1].GetUint64();
+		j.second.second = i.GetArray()[2].GetUint64();
+		transient.push_back(j);
+	}
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<std::pair<uint64_t, bool>>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+	{
+		std::pair<uint64_t, bool> j;
+		j.first = i.GetArray()[0].GetUint64();
+		j.second = i.GetArray()[1].GetBool();
+		transient.push_back(j);
+	}
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<uint64_t>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+	{
+		transient.push_back(i.GetUint64());
+	}
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::map<std::string, uint64_t>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+	{
+		transient.set(i.GetArray()[0].GetString(), i.GetArray()[1].GetUint64());
+	}
+	b = std::move(transient).persistent();
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<std::pair<uint64_t, immer::vector<std::pair<uint64_t, std::string>>>>& b)
+{
+	auto transient = b.transient();
+	for (auto& i : context.doc[name.data()].GetArray())
+	{
+		std::pair<uint64_t, immer::vector_transient<std::pair<uint64_t, std::string>>> j;
+		j.first = i.GetArray()[0].GetUint64();
+		for (auto& k : i.GetArray()[1].GetArray())
+		{
+			j.second.push_back({k.GetArray()[0].GetUint64(), k.GetArray()[1].GetString()});
+		}
+		transient.push_back({j.first, std::move(j.second).persistent()});
+	}
+	b = std::move(transient).persistent();
 }
 
 void Serialize(SerializationContext& context, const mach_header_64& value) {
@@ -428,6 +539,35 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	}
 }
 
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<section_64>& b)
+{
+	auto bArr = context.doc[name.data()].GetArray();
+	auto transient = b.transient();
+	for (auto& s : bArr)
+	{
+		section_64 sec;
+		auto s2 = s.GetArray();
+		std::string sectNameStr = s2[0].GetString();
+		memset(sec.sectname, 0, 16);
+		memcpy(sec.sectname, sectNameStr.c_str(), sectNameStr.size());
+		std::string segNameStr = s2[1].GetString();
+		memset(sec.segname, 0, 16);
+		memcpy(sec.segname, segNameStr.c_str(), segNameStr.size());
+		sec.addr = s2[2].GetUint64();
+		sec.size = s2[3].GetUint64();
+		sec.offset = s2[4].GetUint();
+		sec.align = s2[5].GetUint();
+		sec.reloff = s2[6].GetUint();
+		sec.nreloc = s2[7].GetUint();
+		sec.flags = s2[8].GetUint();
+		sec.reserved1 = s2[9].GetUint();
+		sec.reserved2 = s2[10].GetUint();
+		sec.reserved3 = s2[11].GetUint();
+		transient.push_back(std::move(sec));
+	}
+	b = std::move(transient).persistent();
+}
+
 void Serialize(SerializationContext& context, const linkedit_data_command& value)
 {
 	context.writer.StartArray();
@@ -501,6 +641,31 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 	}
 }
 
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<segment_command_64>& b)
+{
+	auto bArr = context.doc[name.data()].GetArray();
+	auto transient = b.transient();
+	for (auto& s : bArr)
+	{
+		segment_command_64 sec;
+		auto s2 = s.GetArray();
+		std::string segNameStr = s2[0].GetString();
+		memset(sec.segname, 0, 16);
+		memcpy(sec.segname, segNameStr.c_str(), segNameStr.size());
+		sec.vmaddr = s2[1].GetUint64();
+		sec.vmsize = s2[2].GetUint64();
+		sec.fileoff = s2[3].GetUint64();
+		sec.filesize = s2[4].GetUint64();
+		sec.maxprot = s2[5].GetUint();
+		sec.initprot = s2[6].GetUint();
+		sec.nsects = s2[7].GetUint();
+		sec.flags = s2[8].GetUint();
+		transient.push_back(std::move(sec));
+	}
+	b = std::move(transient).persistent();
+}
+
+
 void Serialize(SerializationContext& context, const build_version_command& value)
 {
 	context.writer.StartArray();
@@ -543,6 +708,21 @@ void Deserialize(DeserializationContext& context, std::string_view name, std::ve
 		sec.version = s2[1].GetUint();
 		b.push_back(sec);
 	}
+}
+
+void Deserialize(DeserializationContext& context, std::string_view name, immer::vector<build_tool_version>& b)
+{
+	auto bArr = context.doc[name.data()].GetArray();
+	auto transient = b.transient();
+	for (auto& s : bArr)
+	{
+		build_tool_version sec;
+		auto s2 = s.GetArray();
+		sec.tool = s2[0].GetUint();
+		sec.version = s2[1].GetUint();
+		transient.push_back(sec);
+	}
+	b = std::move(transient).persistent();
 }
 
 } // namespace SharedCacheCore

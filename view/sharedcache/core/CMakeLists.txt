@@ -77,7 +77,7 @@ target_compile_definitions(sharedcachecore PRIVATE ${COMPILE_DEFS})
 
 target_compile_definitions(sharedcachecore PRIVATE SHAREDCACHE_LIBRARY ${COMPILE_DEFS})
 
-target_include_directories(sharedcachecore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INCLUDES})
+target_include_directories(sharedcachecore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer)
 
 set_target_properties(sharedcachecore PROPERTIES
         CXX_STANDARD 17
