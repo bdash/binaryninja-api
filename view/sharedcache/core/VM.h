@@ -90,7 +90,7 @@ class MMappedFileAccessor;
 class MMAP {
 	friend MMappedFileAccessor;
 
-    void *_mmap;
+    uint8_t *_mmap;
     FILE *fd;
     size_t len;
 
@@ -176,8 +176,10 @@ public:
     BinaryNinja::DataBuffer ReadBuffer(size_t addr, size_t length);
 
     void Read(void *dest, size_t addr, size_t length);
-};
 
+    template <typename T>
+    T Read(size_t address);
+};
 
 struct PageMapping {
     std::string filePath;
