@@ -80,12 +80,16 @@ target_compile_definitions(sharedcachecore PRIVATE SHAREDCACHE_LIBRARY ${COMPILE
 target_include_directories(sharedcachecore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${INCLUDES} ${BN_API_PATH}/vendor/immer)
 
 set_target_properties(sharedcachecore PROPERTIES
-        CXX_STANDARD 17
+        CXX_STANDARD 20
         CXX_VISIBILITY_PRESET hidden
         CXX_STANDARD_REQUIRED ON
         VISIBILITY_INLINES_HIDDEN ON
         POSITION_INDEPENDENT_CODE ON
         )
+
+if(CMAKE_BUILD_TYPE MATCHES Debug)
+    target_compile_definitions(sharedcachecore PRIVATE _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG)
+endif()
 
 if(BN_INTERNAL_BUILD)
     set(LIBRARY_OUTPUT_DIRECTORY_PATH "${BN_CORE_PLUGIN_DIR}")

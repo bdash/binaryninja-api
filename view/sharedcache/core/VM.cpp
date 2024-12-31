@@ -34,6 +34,9 @@
 
 
 #include "VM.h"
+#include <cstdint>
+#include <limits>
+#include <type_traits>
 #include <utility>
 #include <memory>
 #include <cstring>
@@ -204,14 +207,15 @@ void MMAP::Unmap()
 }
 
 
-std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>> MMappedFileAccessor::Open(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, const uint64_t sessionID, const std::string &path, std::function<void(std::shared_ptr<MMappedFileAccessor>)> postAllocationRoutine)
+std::shared_ptr<LazyMappedFileAccessor> MMappedFileAccessor::Open(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, const uint64_t sessionID, const std::string &path, std::function<void(std::shared_ptr<MMappedFileAccessor>)> postAllocationRoutine)
 {
 	std::scoped_lock<std::mutex> lock(fileAccessorsMutex);
 	if (auto it = fileAccessors.find(path); it != fileAccessors.end()) {
 		return it->second;
 	}
 
-	auto fileAcccessor = std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>>(new SelfAllocatingWeakPtr<MMappedFileAccessor>(
+	auto fileAcccessor = std::make_shared<LazyMappedFileAccessor>(
+		path,
 		// Allocator logic for the SelfAllocatingWeakPtr
 		[path=path, sessionID=sessionID, dscView](){
 			std::unique_lock<std::mutex> _lock(fileAccessorDequeMutex);
@@ -250,8 +254,8 @@ std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>> MMappedFileAccessor:
 		},
 		[postAllocationRoutine=postAllocationRoutine](std::shared_ptr<MMappedFileAccessor> accessor){
 			if (postAllocationRoutine)
-				postAllocationRoutine(accessor);
-		}));
+				postAllocationRoutine(std::move(accessor));
+		});
 
 	fileAccessors.insert_or_assign(path, fileAcccessor);
 	return fileAcccessor;
@@ -445,6 +449,15 @@ BinaryNinja::DataBuffer MMappedFileAccessor::ReadBuffer(size_t address, size_t l
 	return BinaryNinja::DataBuffer(&m_mmap._mmap[address], length);
 }
 
+std::span<const uint8_t> MMappedFileAccessor::ReadData(size_t address, size_t length)
+{
+	if (m_mmap.len <= length || address > m_mmap.len - length)
+		throw MappingReadException();
+
+	return std::span(&m_mmap._mmap[address], length);
+}
+
+
 void MMappedFileAccessor::Read(void* dest, size_t address, size_t length)
 {
 	if (m_mmap.len <= length || address > m_mmap.len - length)
@@ -476,7 +489,7 @@ void VM::MapPages(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, uint64_t se
 	}
 
 	auto accessor = MMappedFileAccessor::Open(std::move(dscView), sessionID, filePath, postAllocationRoutine);
-	auto [it, inserted] = m_map.insert_or_assign({vm_address, vm_address + size}, PageMapping(std::move(filePath), std::move(accessor), fileoff));
+	auto [it, inserted] = m_map.insert_or_assign({vm_address, vm_address + size}, PageMapping(std::move(accessor), fileoff));
 	if (m_safe && !inserted)
 	{
 		BNLogWarn("Remapping page 0x%zx (f: 0x%zx)", vm_address, fileoff);
@@ -484,7 +497,7 @@ void VM::MapPages(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, uint64_t se
 	}
 }
 
-std::pair<PageMapping, size_t> VM::MappingAtAddress(size_t address)
+std::pair<PageMapping, std::pair<size_t, size_t>> VM::MappingAtAddress(size_t address)
 {
 	if (auto it = m_map.find(address); it != m_map.end())
 	{
@@ -493,7 +506,8 @@ std::pair<PageMapping, size_t> VM::MappingAtAddress(size_t address)
 		// The second item in the returned pair is the offset of `address` within the file.
 		auto& range = it->first;
 		auto& mapping = it->second;
-		return {mapping, mapping.fileOffset + (address - range.start)};
+		auto offset = address - range.start;
+		return {mapping, std::make_pair(mapping.fileOffset + offset, range.end - range.start)};
 	}
 
 	throw MappingReadException();
@@ -512,7 +526,7 @@ uint64_t VMReader::ReadULEB128(size_t limit)
 	uint64_t result = 0;
 	int bit = 0;
 	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	auto fileCursor = mapping.second;
+	auto fileCursor = mapping.second.first;
 	auto fileLimit = fileCursor + (limit - m_cursor);
 	auto fa = mapping.first.fileAccessor->lock();
 	auto* fileBuff = (uint8_t*)fa->Data();
@@ -541,7 +555,7 @@ int64_t VMReader::ReadSLEB128(size_t limit)
 	size_t shift = 0;
 
 	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	auto fileCursor = mapping.second;
+	auto fileCursor = mapping.second.first;
 	auto fileLimit = fileCursor + (limit - m_cursor);
 	auto fa = mapping.first.fileAccessor->lock();
 	auto* fileBuff = (uint8_t*)fa->Data();
@@ -563,68 +577,67 @@ int64_t VMReader::ReadSLEB128(size_t limit)
 std::string VM::ReadNullTermString(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadNullTermString(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadNullTermString(mapping.second.first);
 }
 
 uint8_t VM::ReadUChar(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadUChar(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadUChar(mapping.second.first);
 }
 
 int8_t VM::ReadChar(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadChar(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadChar(mapping.second.first);
 }
 
 uint16_t VM::ReadUShort(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadUShort(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadUShort(mapping.second.first);
 }
 
 int16_t VM::ReadShort(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadShort(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadShort(mapping.second.first);
 }
 
 uint32_t VM::ReadUInt32(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadUInt32(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadUInt32(mapping.second.first);
 }
 
 int32_t VM::ReadInt32(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadInt32(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadInt32(mapping.second.first);
 }
 
 uint64_t VM::ReadULong(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadULong(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadULong(mapping.second.first);
 }
 
 int64_t VM::ReadLong(size_t address)
 {
 	auto mapping = MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadLong(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadLong(mapping.second.first);
 }
 
 BinaryNinja::DataBuffer VM::ReadBuffer(size_t addr, size_t length)
 {
 	auto mapping = MappingAtAddress(addr);
-	return mapping.first.fileAccessor->lock()->ReadBuffer(mapping.second, length);
+	return mapping.first.fileAccessor->lock()->ReadBuffer(mapping.second.first, length);
 }
-
 
 void VM::Read(void* dest, size_t addr, size_t length)
 {
 	auto mapping = MappingAtAddress(addr);
-	mapping.first.fileAccessor->lock()->Read(dest, mapping.second, length);
+	mapping.first.fileAccessor->lock()->Read(dest, mapping.second.first, length);
 }
 
 VMReader::VMReader(std::shared_ptr<VM> vm, size_t addressSize) : m_vm(vm), m_cursor(0), m_addressSize(addressSize) {}
@@ -632,74 +645,74 @@ VMReader::VMReader(std::shared_ptr<VM> vm, size_t addressSize) : m_vm(vm), m_cur
 
 void VMReader::Seek(size_t address)
 {
+	if (m_currentAccessor && address >= m_cursor) {
+		size_t offset = address - m_cursor;
+		m_currentAccessorCursor += offset;
+	} else {
+		m_currentAccessor = nullptr;
+	}
+
 	m_cursor = address;
 }
 
 void VMReader::SeekRelative(size_t offset)
 {
 	m_cursor += offset;
+	m_currentAccessorCursor += offset;
 }
 
 std::string VMReader::ReadCString(size_t address)
 {
 	auto mapping = m_vm->MappingAtAddress(address);
-	return mapping.first.fileAccessor->lock()->ReadNullTermString(mapping.second);
+	return mapping.first.fileAccessor->lock()->ReadNullTermString(mapping.second.first);
 }
 
 uint8_t VMReader::ReadUChar(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 1;
-	return mapping.first.fileAccessor->lock()->ReadUChar(mapping.second);
+	Seek(address);
+	return Read8();
 }
 
 int8_t VMReader::ReadChar(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 1;
-	return mapping.first.fileAccessor->lock()->ReadChar(mapping.second);
+	Seek(address);
+	return ReadS8();
 }
 
 uint16_t VMReader::ReadUShort(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 2;
-	return mapping.first.fileAccessor->lock()->ReadUShort(mapping.second);
+	Seek(address);
+	return Read16();
 }
 
 int16_t VMReader::ReadShort(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 2;
-	return mapping.first.fileAccessor->lock()->ReadShort(mapping.second);
+	Seek(address);
+	return ReadS16();
 }
 
 uint32_t VMReader::ReadUInt32(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 4;
-	return mapping.first.fileAccessor->lock()->ReadUInt32(mapping.second);
+	Seek(address);
+	return Read32();
 }
 
 int32_t VMReader::ReadInt32(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 4;
-	return mapping.first.fileAccessor->lock()->ReadInt32(mapping.second);
+	Seek(address);
+	return ReadS32();
 }
 
 uint64_t VMReader::ReadULong(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 8;
-	return mapping.first.fileAccessor->lock()->ReadULong(mapping.second);
+	Seek(address);
+	return Read64();
 }
 
 int64_t VMReader::ReadLong(size_t address)
 {
-	auto mapping = m_vm->MappingAtAddress(address);
-	m_cursor = address + 8;
-	return mapping.first.fileAccessor->lock()->ReadLong(mapping.second);
+	Seek(address);
+	return ReadS64();
 }
 
 
@@ -725,87 +738,99 @@ size_t VMReader::ReadPointer()
 	return 0;
 }
 
+__attribute__((always_inline))
+MMappedFileAccessor& VMReader::CurrentAccessor() {
+	if (!m_currentAccessor || m_currentAccessorCursor > m_currentAccessorLength) [[unlikely]] {
+		auto mapping = m_vm->MappingAtAddress(m_cursor);
+		m_currentAccessor = mapping.first.fileAccessor->lock();
+		m_currentAccessorCursor = mapping.second.first;
+		m_currentAccessorLength = mapping.second.second;
+	}
+	return *m_currentAccessor;
+}
+
+template <typename R, R(MMappedFileAccessor::*F)(size_t)>
+R VMReader::Read() {
+	constexpr size_t length = sizeof(R);
+
+	R result = (&CurrentAccessor()->*F)(m_currentAccessorCursor);
+	m_cursor += length;
+	m_currentAccessorCursor += length;
+	return result;
+}
+
+template <typename R, R(MMappedFileAccessor::*F)(size_t, size_t)>
+R VMReader::ReadWithExplicitLength(size_t length) {
+	R result = (&CurrentAccessor()->*F)(m_currentAccessorCursor, length);
+	m_cursor += length;
+	m_currentAccessorCursor += length;
+	return result;
+}
+
 BinaryNinja::DataBuffer VMReader::ReadBuffer(size_t length)
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += length;
-	return mapping.first.fileAccessor->lock()->ReadBuffer(mapping.second, length);
+	return ReadWithExplicitLength<BinaryNinja::DataBuffer, &MMappedFileAccessor::ReadBuffer>(length);
 }
 
 BinaryNinja::DataBuffer VMReader::ReadBuffer(size_t addr, size_t length)
 {
-	auto mapping = m_vm->MappingAtAddress(addr);
-	m_cursor = addr + length;
-	return mapping.first.fileAccessor->lock()->ReadBuffer(mapping.second, length);
+	Seek(addr);
+	return ReadBuffer(length);
 }
 
 void VMReader::Read(void* dest, size_t length)
 {
+	m_currentAccessor = nullptr;
 	auto mapping = m_vm->MappingAtAddress(m_cursor);
 	m_cursor += length;
-	mapping.first.fileAccessor->lock()->Read(dest, mapping.second, length);
+	mapping.first.fileAccessor->lock()->Read(dest, mapping.second.first, length);
 }
 
 void VMReader::Read(void* dest, size_t addr, size_t length)
 {
+	m_currentAccessor = nullptr;
 	auto mapping = m_vm->MappingAtAddress(addr);
 	m_cursor = addr + length;
-	mapping.first.fileAccessor->lock()->Read(dest, mapping.second, length);
+	mapping.first.fileAccessor->lock()->Read(dest, mapping.second.first, length);
 }
 
 
 uint8_t VMReader::Read8()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 1;
-	return mapping.first.fileAccessor->lock()->ReadUChar(mapping.second);
+	return Read<uint8_t, &MMappedFileAccessor::ReadUChar>();
 }
 
 int8_t VMReader::ReadS8()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 1;
-	return mapping.first.fileAccessor->lock()->ReadChar(mapping.second);
+	return Read<int8_t, &MMappedFileAccessor::ReadChar>();
 }
 
 uint16_t VMReader::Read16()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 2;
-	return mapping.first.fileAccessor->lock()->ReadUShort(mapping.second);
+	return Read<uint16_t, &MMappedFileAccessor::ReadUShort>();
 }
 
 int16_t VMReader::ReadS16()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 2;
-	return mapping.first.fileAccessor->lock()->ReadShort(mapping.second);
+	return Read<int16_t, &MMappedFileAccessor::ReadShort>();
 }
 
 uint32_t VMReader::Read32()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 4;
-	return mapping.first.fileAccessor->lock()->ReadUInt32(mapping.second);
+	return Read<uint32_t, &MMappedFileAccessor::ReadUInt32>();
 }
 
 int32_t VMReader::ReadS32()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 4;
-	return mapping.first.fileAccessor->lock()->ReadInt32(mapping.second);
+	return Read<int32_t, &MMappedFileAccessor::ReadInt32>();
 }
 
 uint64_t VMReader::Read64()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 8;
-	return mapping.first.fileAccessor->lock()->ReadULong(mapping.second);
+	return Read<uint64_t, &MMappedFileAccessor::ReadULong>();
 }
 
 int64_t VMReader::ReadS64()
 {
-	auto mapping = m_vm->MappingAtAddress(m_cursor);
-	m_cursor += 8;
-	return mapping.first.fileAccessor->lock()->ReadLong(mapping.second);
+	return Read<int64_t, &MMappedFileAccessor::ReadLong>();
 }

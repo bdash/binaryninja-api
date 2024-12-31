@@ -78,14 +78,16 @@ std::vector<std::string> generateArgumentNames(const std::vector<std::string>& c
 
 void SharedCacheWorkflow::ProcessOffImageCall(Ref<AnalysisContext> ctx, Ref<Function> func, Ref<MediumLevelILFunction> mssa, const MediumLevelILInstruction dest, ExprId exprIndex,  bool applySymbolIfFoundToCurrentFunction)
 {
+	if (dest.operation != MLIL_CONST_PTR && dest.operation != MLIL_CONST)
+		return;
+
+
 	auto bv = func->GetView();
-	WorkerPriorityEnqueue([bv=bv, dest=dest, func=func, applySymbolIfFoundToCurrentFunction]()
-		{
+	// WorkerPriorityEnqueue([bv=bv, dest=dest, func=func, applySymbolIfFoundToCurrentFunction]()
+		// {
 			auto workflowState = GetGlobalWorkflowState(bv);
 			Ref<SharedCacheAPI::SharedCache> cache = new SharedCacheAPI::SharedCache(bv);
 			if (!cache)
-				return;
-			if (dest.operation != MLIL_CONST_PTR && dest.operation != MLIL_CONST)
 				return;
 			if (workflowState->autoLoadStubsAndDyldData &&
 					(cache->GetNameForAddress(dest.GetConstant()).find("dyld_shared_cache_branch_islands") != std::string::npos
@@ -106,12 +108,15 @@ void SharedCacheWorkflow::ProcessOffImageCall(Ref<AnalysisContext> ctx, Ref<Func
 				else
 					cache->FindSymbolAtAddrAndApplyToAddr(dest.GetConstant(), dest.GetConstant(), false);
 			}
-	});
+	// });
 }
 
 
 void SharedCacheWorkflow::FixupStubs(Ref<AnalysisContext> ctx)
 {
+	static std::mutex mutex;
+	std::lock_guard lock(mutex);
+
 	try
 	{
 		const auto func = ctx->GetFunction();
@@ -122,10 +127,10 @@ void SharedCacheWorkflow::FixupStubs(Ref<AnalysisContext> ctx)
 		auto workflowState = GetGlobalWorkflowState(bv);
 
 		auto funcStart = func->GetStart();
-		auto sectionExists = !bv->GetSectionsAt(funcStart).empty();
-		if (!sectionExists)
+		auto sections = bv->GetSectionsAt(funcStart);
+		if (sections.empty())
 			return;
-		auto section = bv->GetSectionsAt(funcStart)[0];
+		auto section = sections.front();
 
 		auto imageName = section->GetName();
 		// remove everything after ::
@@ -418,6 +423,9 @@ static constexpr auto workflowInfo = R"({
 
 void fixObjCCallTypes(Ref<AnalysisContext> ctx)
 {
+	static std::mutex mutex;
+	std::lock_guard lock(mutex);
+
 	const auto func = ctx->GetFunction();
 	const auto arch = func->GetArchitecture();
 	const auto bv = func->GetView();

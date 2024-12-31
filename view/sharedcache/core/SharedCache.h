@@ -3,6 +3,7 @@
 //
 
 #include <binaryninjaapi.h>
+#include <cstdint>
 #include "DSCView.h"
 #include "VM.h"
 #include "view/macho/machoview.h"
@@ -12,6 +13,8 @@
 #include "immer/vector.hpp" 
 #include "immer/vector_transient.hpp" 
 #include "immer/map_transient.hpp" 
+
+#include <span>
 
 #ifndef SHAREDCACHE_SHAREDCACHE_H
 #define SHAREDCACHE_SHAREDCACHE_H
@@ -639,7 +642,7 @@ namespace SharedCacheCore {
 		void InitializeHeader(
 			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, const std::vector<const MemoryRegion*> regionsToLoad);
 
-		void ReadExportNode(std::vector<ExportNode>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer,
+		void ReadExportNode(std::vector<ExportNode>& symbolList, SharedCacheMachOHeader& header, std::span<const uint8_t> buffer,
 			uint64_t textBase, const std::string& currentText, size_t cursor, uint32_t endGuard);
 		std::vector<ExportNode> ParseExportTrie(
 			std::shared_ptr<MMappedFileAccessor> linkeditFile, SharedCacheMachOHeader header);

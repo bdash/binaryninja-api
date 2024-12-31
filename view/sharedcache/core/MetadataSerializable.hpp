@@ -35,6 +35,7 @@
  * */
 
 #include "binaryninjaapi.h"
+#include "binaryninjacore.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/prettywriter.h"
@@ -114,7 +115,12 @@ public:
 	}
 
 	Ref<Metadata> AsMetadata() {
-		return new Metadata(AsString());
+		SerializationContext context;
+		Store(context);
+
+		// Avoid the `Metadata` constructor that takes a `const std::string&`
+		// because it forces an additional copy of the string data.
+		return new Metadata(BNCreateMetadataStringData(context.buffer.GetString()));
 	}
 
 	bool LoadFromMetadata(const Ref<Metadata>& meta)

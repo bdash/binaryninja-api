@@ -6,7 +6,9 @@
 #define SHAREDCACHE_VM_H
 #include <binaryninjaapi.h>
 #include <condition_variable>
+#include <type_traits>
 #include <unordered_map>
+#include <span>
 
 void VMShutdown();
 
@@ -105,12 +107,26 @@ class MMAP {
     void Unmap();
 };
 
+class LazyMappedFileAccessor : public SelfAllocatingWeakPtr<MMappedFileAccessor> {
+public:
+    LazyMappedFileAccessor(std::string filePath, std::function<std::shared_ptr<MMappedFileAccessor>()> allocator,
+            std::function<void(std::shared_ptr<MMappedFileAccessor>)> postAlloc)
+        : SelfAllocatingWeakPtr(std::move(allocator), std::move(postAlloc)), m_filePath(std::move(filePath)) {
+    }
+
+    std::string_view filePath() const { return m_filePath; }
+
+private:
+    std::string m_filePath;
+};
+
+
 static uint64_t maxFPLimit;
 static std::mutex fileAccessorDequeMutex;
 static std::unordered_map<uint64_t, std::deque<std::shared_ptr<MMappedFileAccessor>>> fileAccessorReferenceHolder;
 static std::set<uint64_t> blockedSessionIDs;
 static std::mutex fileAccessorsMutex;
-static std::unordered_map<std::string, std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>>> fileAccessors;
+static std::unordered_map<std::string, std::shared_ptr<LazyMappedFileAccessor>> fileAccessors;
 static counting_semaphore fileAccessorSemaphore(0);
 
 static std::atomic<uint64_t> mmapCount = 0;
@@ -124,7 +140,7 @@ public:
 	MMappedFileAccessor(const std::string &path);
 	~MMappedFileAccessor();
 
-	static std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>> Open(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, const uint64_t sessionID, const std::string &path, std::function<void(std::shared_ptr<MMappedFileAccessor>)> postAllocationRoutine = nullptr);
+	static std::shared_ptr<LazyMappedFileAccessor> Open(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, const uint64_t sessionID, const std::string &path, std::function<void(std::shared_ptr<MMappedFileAccessor>)> postAllocationRoutine = nullptr);
 
 	static void CloseAll(const uint64_t sessionID);
 
@@ -174,6 +190,7 @@ public:
     int64_t ReadLong(size_t address);
 
     BinaryNinja::DataBuffer ReadBuffer(size_t addr, size_t length);
+    std::span<const uint8_t> ReadData(size_t addr, size_t length);
 
     void Read(void *dest, size_t addr, size_t length);
 
@@ -182,11 +199,10 @@ public:
 };
 
 struct PageMapping {
-    std::string filePath;
-	std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>> fileAccessor;
+	std::shared_ptr<LazyMappedFileAccessor> fileAccessor;
     size_t fileOffset;
-	PageMapping(std::string filePath, std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>> fileAccessor, size_t fileOffset)
-		: filePath(std::move(filePath)), fileAccessor(std::move(fileAccessor)), fileOffset(fileOffset) {}
+	PageMapping(std::shared_ptr<LazyMappedFileAccessor> fileAccessor, size_t fileOffset)
+		: fileAccessor(std::move(fileAccessor)), fileOffset(fileOffset) {}
 };
 
 
@@ -256,7 +272,7 @@ public:
 
     bool AddressIsMapped(uint64_t address);
 
-    std::pair<PageMapping, size_t> MappingAtAddress(size_t address);
+    std::pair<PageMapping, std::pair<size_t, size_t>> MappingAtAddress(size_t address);
 
     std::string ReadNullTermString(size_t address);
 
@@ -278,13 +294,20 @@ public:
 
     BinaryNinja::DataBuffer ReadBuffer(size_t addr, size_t length);
 
+    // No std::span<const uint8_t> ReadData(…) as the
+    // mapping is not guaranteed to remain valid for long enough.
+    // std::span<const uint8_t> ReadData(size_t addr, size_t length);
+
     void Read(void *dest, size_t addr, size_t length);
 };
 
 
 class VMReader {
     std::shared_ptr<VM> m_vm;
+    std::shared_ptr<MMappedFileAccessor> m_currentAccessor;
     size_t m_cursor;
+    size_t m_currentAccessorCursor;
+    size_t m_currentAccessorLength;
     size_t m_addressSize;
 
 	BNEndianness m_endianness = LittleEndian;
@@ -351,6 +374,14 @@ public:
     void Read(void *dest, size_t length);
 
     void Read(void *dest, size_t addr, size_t length);
+
+    template <typename R, R(MMappedFileAccessor::*F)(size_t)>
+    R Read();
+
+    template <typename R, R(MMappedFileAccessor::*F)(size_t, size_t)>
+    R ReadWithExplicitLength(size_t length);
+
+    MMappedFileAccessor& CurrentAccessor();
 };
 
 #endif //SHAREDCACHE_VM_H

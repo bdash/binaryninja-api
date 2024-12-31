@@ -26,6 +26,7 @@
 
 #include "SharedCache.h"
 #include "ObjC.h"
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <unordered_map>
@@ -34,12 +35,41 @@
 #include <memory>
 #include <chrono>
 #include <thread>
+#include <span>
+
+#define _MACHO_LOADER_H_
+#include <os/log.h>
+#include <os/signpost.h>
 
 #include "immer/flex_vector.hpp"
 #include "immer/vector_transient.hpp"
 
 using namespace BinaryNinja;
 using namespace SharedCacheCore;
+
+#define SIGNPOST_EMIT(message, ...) \
+	os_signpost_event_emit(Signpost::LogHandle(), os_signpost_id_generate(Signpost::LogHandle()), message, ##__VA_ARGS__)
+
+#define SIGNPOST_INTERVAL_SCOPE(name, ...) \
+	// os_signpost_id_t signpost_id_ ## __LINE__ = os_signpost_id_generate(Signpost::LogHandle()); \
+	// if (os_signpost_enabled(Signpost::LogHandle())) { \
+	// 	os_signpost_interval_begin(Signpost::LogHandle(), (signpost_id_ ## __LINE__), name, ##__VA_ARGS__); \
+	// } \
+	// auto signpost_end_ ## __LINE__ = [=](void*){ \
+	// 	os_signpost_interval_end(Signpost::LogHandle(), (signpost_id_ ## __LINE__), name, ##__VA_ARGS__); \
+	// }; \
+	// std::unique_ptr<void, decltype(signpost_end_ ## __LINE__)> guard((void*)1, signpost_end_ ## __LINE__)
+
+
+namespace {
+namespace Signpost {
+
+os_log_t LogHandle() {
+	static os_log_t handle = os_log_create("com.vector35.binaryninja.sharedcache", OS_LOG_CATEGORY_POINTS_OF_INTEREST);
+	return handle;
+}
+}
+}
 
 #ifdef _MSC_VER
 
@@ -183,7 +213,7 @@ BNSegmentFlag SegmentFlagsFromMachOProtections(int initProt, int maxProt) {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-function"
-static int64_t readSLEB128(DataBuffer& buffer, size_t length, size_t& offset)
+static int64_t readSLEB128(std::span<const uint8_t> buffer, size_t length, size_t& offset)
 {
 	uint8_t cur;
 	int64_t value = 0;
@@ -201,8 +231,7 @@ static int64_t readSLEB128(DataBuffer& buffer, size_t length, size_t& offset)
 }
 #pragma clang diagnostic pop
 
-
-static uint64_t readLEB128(DataBuffer& p, size_t end, size_t& offset)
+static uint64_t readLEB128(std::span<const uint8_t> p, size_t end, size_t& offset)
 {
 	uint64_t result = 0;
 	int bit = 0;
@@ -225,9 +254,9 @@ static uint64_t readLEB128(DataBuffer& p, size_t end, size_t& offset)
 }
 
 
-uint64_t readValidULEB128(DataBuffer& buffer, size_t& cursor)
+uint64_t readValidULEB128(std::span<const uint8_t> buffer, size_t& cursor)
 {
-	uint64_t value = readLEB128(buffer, buffer.GetLength(), cursor);
+	uint64_t value = readLEB128(buffer, buffer.size(), cursor);
 	if ((int64_t)value == -1)
 		throw ReadException();
 	return value;
@@ -299,6 +328,8 @@ uint64_t SharedCache::FastGetBackingCacheCount(BinaryNinja::Ref<BinaryNinja::Bin
 
 void SharedCache::PerformInitialLoad()
 {
+	SIGNPOST_INTERVAL_SCOPE("SharedCache::PerformInitialLoad");
+
 	m_logger->LogInfo("Performing initial load of Shared Cache");
 	auto path = m_dscView->GetFile()->GetOriginalFilename();
 	auto baseFile = MMappedFileAccessor::Open(m_dscView, m_dscView->GetFile()->GetSessionId(), path)->lock();
@@ -831,7 +862,7 @@ void SharedCache::PerformInitialLoad()
 				if (imageHeader->linkeditPresent && vm->AddressIsMapped(imageHeader->linkeditSegment.vmaddr))
 				{
 					auto mapping = vm->MappingAtAddress(imageHeader->linkeditSegment.vmaddr);
-					imageHeader->exportTriePath = mapping.first.filePath;
+					imageHeader->exportTriePath = mapping.first.fileAccessor->filePath();
 				}
 				headers.set(start.second, imageHeader.value());
 				CacheImage image;
@@ -1440,6 +1471,8 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 
 SharedCache::SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView) : m_dscView(dscView), m_viewSpecificState(ViewSpecificStateForView(dscView))
 {
+	// SIGNPOST_EMIT("SharedCache::SharedCache");
+
 	if (dscView->GetTypeName() != VIEW_NAME)
 	{
 		// Unreachable?
@@ -1610,6 +1643,9 @@ bool SharedCache::LoadImageContainingAddress(uint64_t address, bool skipObjC)
 
 bool SharedCache::LoadSectionAtAddress(uint64_t address)
 {
+	SIGNPOST_INTERVAL_SCOPE("SharedCache::LoadSectionAtAddress", "address=%p", (void*)address);
+	fprintf(stderr, "SharedCache::LoadSectionAtAddress(%p)\n", (void*)address);
+
 	std::unique_lock lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
 	DeserializeFromRawView();
 	WillMutateState();
@@ -1655,8 +1691,10 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 			{
 				if (stubIsland.loaded)
 				{
+					fprintf(stderr, "   SharedCache::LoadSectionAtAddress: stub island at %p already loaded\n", (void*)address);
 					return true;
 				}
+				fprintf(stderr, "   SharedCache::LoadSectionAtAddress: loading stub island %s at %p\n", stubIsland.prettyName.c_str(), (void*)address);
 				m_logger->LogInfo("Loading stub island %s @ 0x%llx", stubIsland.prettyName.c_str(), stubIsland.start);
 				auto targetFile = vm->MappingAtAddress(stubIsland.start).first.fileAccessor->lock();
 				ParseAndApplySlideInfoForFile(targetFile);
@@ -1685,6 +1723,8 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				m_dscView->AddAnalysisOption("linearsweep");
 				m_dscView->UpdateAnalysis();
 
+				fprintf(stderr, "   SharedCache::LoadSectionAtAddress: finished loading stub island %s at %p\n", stubIsland.prettyName.c_str(), (void*)address);
+
 				return true;
 			}
 		}
@@ -1696,8 +1736,10 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 			{
 				if (dyldData.loaded)
 				{
+					fprintf(stderr, "   SharedCache::LoadSectionAtAddress: dyld data at %p already loaded\n", (void*)address);
 					return true;
 				}
+				fprintf(stderr, "   SharedCache::LoadSectionAtAddress: loading dyld data %s at %p\n", dyldData.prettyName.c_str(), (void*)address);
 				m_logger->LogInfo("Loading dyld data %s", dyldData.prettyName.c_str());
 				auto targetFile = vm->MappingAtAddress(dyldData.start).first.fileAccessor->lock();
 				ParseAndApplySlideInfoForFile(targetFile);
@@ -1726,6 +1768,8 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				m_dscView->AddAnalysisOption("linearsweep");
 				m_dscView->UpdateAnalysis();
 
+				fprintf(stderr, "   SharedCache::LoadSectionAtAddress: finished loading dyld data %s at %p\n", dyldData.prettyName.c_str(), (void*)address);
+
 				return true;
 			}
 		}
@@ -1737,8 +1781,10 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 			{
 				if (region.loaded)
 				{
+					fprintf(stderr, "   SharedCache::LoadSectionAtAddress: non-image region at %p already loaded\n", (void*)address);
 					return true;
 				}
+				fprintf(stderr, "   SharedCache::LoadSectionAtAddress: loading non-image region %s at %p\n", region.prettyName.c_str(), (void*)address);
 				m_logger->LogInfo("Loading non-image region %s", region.prettyName.c_str());
 				auto targetFile = vm->MappingAtAddress(region.start).first.fileAccessor->lock();
 				ParseAndApplySlideInfoForFile(targetFile);
@@ -1766,6 +1812,8 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				m_dscView->AddAnalysisOption("linearsweep");
 				m_dscView->UpdateAnalysis();
 
+				fprintf(stderr, "   SharedCache::LoadSectionAtAddress: finished loading non-image region %s at %p\n", region.prettyName.c_str(), (void*)address);
+
 				return true;
 			}
 		}
@@ -1778,6 +1826,7 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 	auto rawViewEnd = m_dscView->GetParentView()->GetEnd();
 	auto reader = VMReader(vm);
 
+	fprintf(stderr, "   SharedCache::LoadSectionAtAddress: loading partial image %s at %p\n", targetHeader.installName.c_str(), (void*)address);
 	m_logger->LogDebug("Partial loading image %s", targetHeader.installName.c_str());
 
 	auto targetFile = vm->MappingAtAddress(targetSegment->start).first.fileAccessor->lock();
@@ -1823,6 +1872,8 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 	m_dscView->UpdateAnalysis();
 
 	m_dscView->CommitUndoActions(id);
+
+	fprintf(stderr, "   SharedCache::LoadSectionAtAddress: finished loading partial image %s at %p\n", targetHeader.installName.c_str(), (void*)address);
 
 	return true;
 }
@@ -1904,6 +1955,7 @@ void SharedCache::ProcessAllObjCSections()
 
 bool SharedCache::LoadImageWithInstallName(std::string_view installName, bool skipObjC)
 {
+	SIGNPOST_INTERVAL_SCOPE("SharedCache::LoadImageWithInstallName", "installName=%{public}s skipObjC=%d", installName.data(), skipObjC);
 	auto settings = m_dscView->GetLoadSettings(VIEW_NAME);
 
 	std::unique_lock lock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
@@ -1937,9 +1989,6 @@ bool SharedCache::LoadImageWithInstallName(std::string_view installName, bool sk
 	auto id = m_dscView->BeginUndoActions();
 	MutableState().viewState = DSCViewStateLoadedWithImages;
 
-	auto reader = VMReader(vm);
-	reader.Seek(targetImage->headerLocation);
-
 	std::vector<size_t> regionsToLoad;
 
 	auto newTargetImageRegions = targetImage->regions.transient();
@@ -1959,14 +2008,15 @@ bool SharedCache::LoadImageWithInstallName(std::string_view installName, bool sk
 			continue;
 		}
 
-		auto targetFile = vm->MappingAtAddress(region.start).first.fileAccessor->lock();
+		auto [mapping, fileRelativeRegionStart] = vm->MappingAtAddress(region.start);
+		auto targetFile = mapping.fileAccessor->lock();
 		ParseAndApplySlideInfoForFile(targetFile);
 
 		auto rawViewEnd = m_dscView->GetParentView()->GetEnd();
 
-		auto buff = reader.ReadBuffer(region.start, region.size);
-		m_dscView->GetParentView()->GetParentView()->WriteBuffer(rawViewEnd, buff);
-		m_dscView->GetParentView()->WriteBuffer(rawViewEnd, buff);
+		auto buff = targetFile->ReadData(fileRelativeRegionStart.first, region.size);
+		m_dscView->GetParentView()->GetParentView()->Write(rawViewEnd, buff.data(), buff.size());
+		m_dscView->GetParentView()->Write(rawViewEnd, buff.data(), buff.size());
 
 		MemoryRegion newRegion(region);
 		newRegion.loaded = true;
@@ -1977,7 +2027,7 @@ bool SharedCache::LoadImageWithInstallName(std::string_view installName, bool sk
 
 		m_dscView->GetParentView()->AddAutoSegment(rawViewEnd, region.size, rawViewEnd, region.size, region.flags);
 		m_dscView->AddUserSegment(region.start, region.size, rawViewEnd, region.size, region.flags);
-		m_dscView->WriteBuffer(region.start, buff);
+		m_dscView->Write(region.start, buff.data(), buff.size());
 	}
 
 	if (regionsToLoad.empty())
@@ -2801,7 +2851,7 @@ void SharedCache::InitializeHeader(
 		auto funcStarts =
 			vm->MappingAtAddress(header.linkeditSegment.vmaddr)
 				.first.fileAccessor->lock()
-				->ReadBuffer(header.functionStarts.funcoff, header.functionStarts.funcsize);
+				->ReadData(header.functionStarts.funcoff, header.functionStarts.funcsize);
 		size_t i = 0;
 		uint64_t curfunc = header.textBase;
 		uint64_t curOffset;
@@ -2836,7 +2886,7 @@ void SharedCache::InitializeHeader(
 
 		auto reader = vm->MappingAtAddress(header.linkeditSegment.vmaddr).first.fileAccessor->lock();
 		// auto symtab = reader->ReadBuffer(header.symtab.symoff, header.symtab.nsyms * sizeof(nlist_64));
-		auto strtab = reader->ReadBuffer(header.symtab.stroff, header.symtab.strsize);
+		auto strtab = reader->ReadData(header.symtab.stroff, header.symtab.strsize);
 		nlist_64 sym;
 		memset(&sym, 0, sizeof(sym));
 		auto N_TYPE = 0xE;	// idk
@@ -2847,7 +2897,7 @@ void SharedCache::InitializeHeader(
 			if (sym.n_strx >= header.symtab.strsize || ((sym.n_type & N_TYPE) == N_INDR))
 				continue;
 
-			std::string symbol((char*)strtab.GetDataAt(sym.n_strx));
+			std::string symbol((char*)strtab.subspan(sym.n_strx).data());
 			// BNLogError("%s: 0x%llx", symbol.c_str(), sym.n_value);
 			if (symbol == "<redacted>")
 				continue;
@@ -2912,6 +2962,7 @@ void SharedCache::InitializeHeader(
 
 	if (header.exportTriePresent && header.linkeditPresent && vm->AddressIsMapped(header.linkeditSegment.vmaddr))
 	{
+		SIGNPOST_EMIT("SharedCache::InitializeHeader -> ParseExportTrie", "this=%p header=%s", this, header.installName.c_str());
 		auto symbols = SharedCache::ParseExportTrie(vm->MappingAtAddress(header.linkeditSegment.vmaddr).first.fileAccessor->lock(), header);
 		for (auto& node : symbols)
 		{
@@ -2965,7 +3016,7 @@ void SharedCache::InitializeHeader(
 }
 
 
-void SharedCache::ReadExportNode(std::vector<ExportNode>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer, uint64_t textBase,
+void SharedCache::ReadExportNode(std::vector<ExportNode>& symbolList, SharedCacheMachOHeader& header, std::span<const uint8_t> buffer, uint64_t textBase,
 	const std::string& currentText, size_t cursor, uint32_t endGuard)
 {
 	WillMutateState();
@@ -3031,10 +3082,11 @@ void SharedCache::ReadExportNode(std::vector<ExportNode>& symbolList, SharedCach
 
 std::vector<SharedCache::ExportNode> SharedCache::ParseExportTrie(std::shared_ptr<MMappedFileAccessor> linkeditFile, SharedCacheMachOHeader header)
 {
+	SIGNPOST_INTERVAL_SCOPE("SharedCache::ParseExportTrie", "header=%s", header.installName.c_str());
 	try
 	{
 		std::vector<ExportNode> nodes;
-		DataBuffer buffer = linkeditFile->ReadBuffer(header.exportTrie.dataoff, header.exportTrie.datasize);
+		auto buffer = linkeditFile->ReadData(header.exportTrie.dataoff, header.exportTrie.datasize);
 		ReadExportNode(nodes, header, buffer, header.textBase, "", 0, header.exportTrie.datasize);
 		return nodes;
 	}
@@ -3058,6 +3110,7 @@ std::vector<std::string> SharedCache::GetAvailableImages()
 
 std::vector<std::pair<std::string, Ref<Symbol>>> SharedCache::LoadAllSymbolsAndWait()
 {
+	SIGNPOST_INTERVAL_SCOPE("SharedCache::LoadAllSymbolsAndWait");
 	WillMutateState();
 
 	std::unique_lock<std::mutex> initialLoadBlock(m_viewSpecificState->viewOperationsThatInfluenceMetadataMutex);
@@ -3076,6 +3129,7 @@ std::vector<std::pair<std::string, Ref<Symbol>>> SharedCache::LoadAllSymbolsAndW
 			m_logger->LogWarn("Serious Error: Failed to open export trie %s for %s", header->exportTriePath.c_str(), header->installName.c_str());
 			continue;
 		}
+		SIGNPOST_EMIT("SharedCache::LoadAllSymbolsAndWait -> ParseExportTrie", "this=%p header=%s", this, header->installName.c_str());
 		auto exportList = SharedCache::ParseExportTrie(mapping, *header);
 		for (auto& sym : exportList)
 		{
@@ -3136,6 +3190,7 @@ Ref<TypeLibrary> SharedCache::TypeLibraryForImage(const std::string& installName
 void SharedCache::FindSymbolAtAddrAndApplyToAddr(
 	uint64_t symbolLocation, uint64_t targetLocation, bool triggerReanalysis)
 {
+	SIGNPOST_INTERVAL_SCOPE("SharedCache::FindSymbolAtAddrAndApplyToAddr", "symbolLocation=%p targetLocation=%p triggerReanalysis=%d", (void*)symbolLocation, (void*)targetLocation, triggerReanalysis);
 	WillMutateState();
 
 	std::string prefix = "";
@@ -3177,6 +3232,8 @@ void SharedCache::FindSymbolAtAddrAndApplyToAddr(
 		m_logger->LogWarn("Serious Error: Failed to open export trie for %s", header->installName.c_str());
 		return;
 	}
+
+	SIGNPOST_EMIT("SharedCache::FindSymbolAtAddrAndApplyToAddr -> ParseExportTrie", "this=%p header=%s", this, header->installName.c_str());
 	auto exportList = SharedCache::ParseExportTrie(mapping, *header);
 	auto typeLib = TypeLibraryForImage(header->installName);
 	ApplySymbolAtAddr(exportList.begin(), exportList.end(), symbolLocation, targetLocation, prefix, triggerReanalysis, typeLib);
@@ -3236,7 +3293,8 @@ bool SharedCache::SaveToDSCView()
 {
 	if (m_dscView)
 	{
-		auto data = AsMetadata();
+		// auto data = AsMetadata();
+		Ref<Metadata> data = new Metadata("empty");
 		m_dscView->StoreMetadata(SharedCacheMetadataTag, data);
 		m_dscView->GetParentView()->GetParentView()->StoreMetadata(SharedCacheMetadataTag, data);
 
@@ -3552,7 +3610,7 @@ extern "C"
 					images[i].mappings[j].vmAddress = header.sections[j].addr;
 					images[i].mappings[j].size = header.sections[j].size;
 					images[i].mappings[j].name = BNAllocString(header.sectionNames[j].c_str());
-					images[i].mappings[j].filePath = BNAllocString(vm->MappingAtAddress(header.sections[j].addr).first.filePath.c_str());
+					images[i].mappings[j].filePath = BNAllocString(vm->MappingAtAddress(header.sections[j].addr).first.fileAccessor->filePath().data());
 				}
 				i++;
 			}

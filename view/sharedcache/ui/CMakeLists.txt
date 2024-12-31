@@ -53,12 +53,16 @@ else()
 endif()
 
 set_target_properties(sharedcacheui PROPERTIES
-        CXX_STANDARD 17
+        CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
         POSITION_INDEPENDENT_CODE ON
         )
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(sharedcacheui PRIVATE -Wno-Wdeprecated-this-capture)
+endif()
 
 function(get_recursive_include_dirs target result)
     # Initialize an empty list to store include directories
