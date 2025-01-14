@@ -499,7 +499,7 @@ namespace SharedCacheCore {
 
 	struct MappingInfo
 	{
-		std::shared_ptr<MMappedFileAccessor> file;
+		MMappedFileAccessor* file;
 		dyld_cache_mapping_info mappingInfo;
 		uint32_t slideInfoVersion;
 		dyld_cache_slide_info_v2 slideInfoV2;
@@ -582,7 +582,7 @@ namespace SharedCacheCore {
 		static uint64_t FastGetBackingCacheCount(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView);
 		bool SaveToDSCView();
 
-		void ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file);
+		void ParseAndApplySlideInfoForFile(MMappedFileAccessor* file);
 		std::optional<uint64_t> GetImageStart(std::string installName);
 		std::optional<SharedCacheMachOHeader> HeaderForAddress(uint64_t);
 		bool LoadImageWithInstallName(std::string installName, bool skipObjC);

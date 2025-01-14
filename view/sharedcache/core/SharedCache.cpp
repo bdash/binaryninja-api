@@ -976,7 +976,7 @@ std::shared_ptr<VM> SharedCache::GetVMMap(bool mapPages)
 			{
 				vm->MapPages(m_dscView, m_dscView->GetFile()->GetSessionId(), mapping.address, mapping.fileOffset, mapping.size, cache.path,
 					[this, vm=vm](std::shared_ptr<MMappedFileAccessor> mmap){
-						ParseAndApplySlideInfoForFile(mmap);
+						ParseAndApplySlideInfoForFile(mmap.get());
 					});
 			}
 		}
@@ -1026,13 +1026,12 @@ std::string to_hex_string(uint64_t value)
 }
 
 
-void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file)
+void SharedCache::ParseAndApplySlideInfoForFile(MMappedFileAccessor* file)
 {
 	if (file->SlideInfoWasApplied())
 		return;
 
 	WillMutateState();
-	std::vector<std::pair<uint64_t, uint64_t>> rewrites;
 
 	dyld_cache_header baseHeader;
 	file->Read(&baseHeader, 0, sizeof(dyld_cache_header));
@@ -1139,6 +1138,10 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 		return;
 	}
 
+#ifdef SLIDEINFO_DEBUG_TAGS
+	std::vector<std::pair<uint64_t, uint64_t>> rewrites;
+#endif
+
 	for (const auto& [off, mapping] : mappings)
 	{
 		m_logger->LogDebug("Slide Info Version: %d", mapping.slideInfoVersion);
@@ -1190,7 +1193,7 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 									value += slideAmount;
 								}
 								pageOffset += delta;
-								rewrites.emplace_back(loc, value);
+								file->WritePointer(loc, value);
 							}
 							catch (MappingReadException& ex)
 							{
@@ -1260,15 +1263,14 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 						loc += delta * sizeof(dyld_cache_slide_pointer3);
 						try
 						{
-							dyld_cache_slide_pointer3 slideInfo;
-							file->Read(&slideInfo, loc, sizeof(slideInfo));
+							dyld_cache_slide_pointer3 slideInfo = { .raw = file->ReadULong(loc) };
 							delta = slideInfo.plain.offsetToNextPointer;
 
 							if (slideInfo.auth.authenticated)
 							{
 								uint64_t value = slideInfo.auth.offsetFromSharedCacheBase;
 								value += mapping.slideInfoV3.auth_value_add;
-								rewrites.emplace_back(loc, value);
+								file->WritePointer(loc, value);
 							}
 							else
 							{
@@ -1276,7 +1278,7 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 								uint64_t top8Bits = value51 & 0x0007F80000000000;
 								uint64_t bottom43Bits = value51 & 0x000007FFFFFFFFFF;
 								uint64_t value = (uint64_t)top8Bits << 13 | bottom43Bits;
-								rewrites.emplace_back(loc, value);
+								file->WritePointer(loc, value);
 							}
 						}
 						catch (MappingReadException& ex)
@@ -1315,18 +1317,17 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 						loc += delta * sizeof(dyld_cache_slide_pointer5);
 						try
 						{
-							dyld_cache_slide_pointer5 slideInfo;
-							file->Read(&slideInfo, loc, sizeof(slideInfo));
+							dyld_cache_slide_pointer5 slideInfo = { .raw = file->ReadULong(loc) };
 							delta = slideInfo.regular.next;
 							if (slideInfo.auth.auth)
 							{
 								uint64_t value = mapping.slideInfoV5.value_add + slideInfo.auth.runtimeOffset;
-								rewrites.emplace_back(loc, value);
+								file->WritePointer(loc, value);
 							}
 							else
 							{
 								uint64_t value = mapping.slideInfoV5.value_add + slideInfo.regular.runtimeOffset;
-								rewrites.emplace_back(loc, value);
+								file->WritePointer(loc, value);
 							}
 						}
 						catch (MappingReadException& ex)
@@ -1343,10 +1344,10 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 			}
 		}
 	}
+
+#ifdef SLIDEINFO_DEBUG_TAGS
 	for (const auto& [loc, value] : rewrites)
 	{
-		file->WritePointer(loc, value);
-#ifdef SLIDEINFO_DEBUG_TAGS
 		uint64_t vmAddr = 0;
 		{
 			for (uint64_t off = baseHeader.mappingOffset; off < baseHeader.mappingOffset + baseHeader.mappingCount * sizeof(dyld_cache_mapping_info); off += sizeof(dyld_cache_mapping_info))
@@ -1367,9 +1368,9 @@ void SharedCache::ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAcces
 			type = m_dscView->GetTagType("slideinfo");
 		}
 		m_dscView->AddAutoDataTag(vmAddr, new Tag(type, "0x" + to_hex_string(file->ReadULong(loc)) + " => 0x" + to_hex_string(value)));
-#endif
 	}
 	m_logger->LogDebug("Applied slide info for %s (0x%llx rewrites)", file->Path().c_str(), rewrites.size());
+#endif
 	file->SetSlideInfoWasApplied(true);
 }
 
@@ -1582,7 +1583,7 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				}
 				m_logger->LogInfo("Loading stub island %s @ 0x%llx", stubIsland.prettyName.c_str(), stubIsland.start);
 				auto targetFile = vm->MappingAtAddress(stubIsland.start).first.fileAccessor->lock();
-				ParseAndApplySlideInfoForFile(targetFile);
+				ParseAndApplySlideInfoForFile(targetFile.get());
 				auto reader = VMReader(vm);
 				auto buff = reader.ReadBuffer(stubIsland.start, stubIsland.size);
 				auto rawViewEnd = m_dscView->GetParentView()->GetEnd();
@@ -1622,7 +1623,7 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				}
 				m_logger->LogInfo("Loading dyld data %s", dyldData.prettyName.c_str());
 				auto targetFile = vm->MappingAtAddress(dyldData.start).first.fileAccessor->lock();
-				ParseAndApplySlideInfoForFile(targetFile);
+				ParseAndApplySlideInfoForFile(targetFile.get());
 				auto reader = VMReader(vm);
 				auto buff = reader.ReadBuffer(dyldData.start, dyldData.size);
 				auto rawViewEnd = m_dscView->GetParentView()->GetEnd();
@@ -1661,7 +1662,7 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 				}
 				m_logger->LogInfo("Loading non-image region %s", region.prettyName.c_str());
 				auto targetFile = vm->MappingAtAddress(region.start).first.fileAccessor->lock();
-				ParseAndApplySlideInfoForFile(targetFile);
+				ParseAndApplySlideInfoForFile(targetFile.get());
 				auto reader = VMReader(vm);
 				auto buff = reader.ReadBuffer(region.start, region.size);
 				auto rawViewEnd = m_dscView->GetParentView()->GetEnd();
@@ -1700,7 +1701,7 @@ bool SharedCache::LoadSectionAtAddress(uint64_t address)
 	m_logger->LogDebug("Partial loading image %s", targetHeader.installName.c_str());
 
 	auto targetFile = vm->MappingAtAddress(targetSegment->start).first.fileAccessor->lock();
-	ParseAndApplySlideInfoForFile(targetFile);
+	ParseAndApplySlideInfoForFile(targetFile.get());
 	auto buff = reader.ReadBuffer(targetSegment->start, targetSegment->size);
 	m_dscView->GetParentView()->GetParentView()->WriteBuffer(
 		m_dscView->GetParentView()->GetParentView()->GetEnd(), buff);
@@ -1858,7 +1859,7 @@ bool SharedCache::LoadImageWithInstallName(std::string installName, bool skipObj
 		}
 
 		auto targetFile = vm->MappingAtAddress(region.start).first.fileAccessor->lock();
-		ParseAndApplySlideInfoForFile(targetFile);
+		ParseAndApplySlideInfoForFile(targetFile.get());
 
 		auto rawViewEnd = m_dscView->GetParentView()->GetEnd();
 
