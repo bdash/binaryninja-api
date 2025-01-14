@@ -528,15 +528,17 @@ _BNDSCViewLoadImageContainingAddress.restype = ctypes.c_bool
 _BNDSCViewLoadImageContainingAddress.argtypes = [
 		ctypes.POINTER(BNSharedCache),
 		ctypes.c_ulonglong,
+		ctypes.c_bool,
 	]
 
 
 # noinspection PyPep8Naming
 def BNDSCViewLoadImageContainingAddress(
 		cache: ctypes.POINTER(BNSharedCache), 
-		address: int
+		address: int, 
+		skipObjC: bool
 		) -> bool:
-	return _BNDSCViewLoadImageContainingAddress(cache, address)
+	return _BNDSCViewLoadImageContainingAddress(cache, address, skipObjC)
 
 
 # -------------------------------------------------------
@@ -547,15 +549,17 @@ _BNDSCViewLoadImageWithInstallName.restype = ctypes.c_bool
 _BNDSCViewLoadImageWithInstallName.argtypes = [
 		ctypes.POINTER(BNSharedCache),
 		ctypes.c_char_p,
+		ctypes.c_bool,
 	]
 
 
 # noinspection PyPep8Naming
 def BNDSCViewLoadImageWithInstallName(
 		cache: ctypes.POINTER(BNSharedCache), 
-		name: Optional[str]
+		name: Optional[str], 
+		skipObjC: bool
 		) -> bool:
-	return _BNDSCViewLoadImageWithInstallName(cache, cstr(name))
+	return _BNDSCViewLoadImageWithInstallName(cache, cstr(name), skipObjC)
 
 
 # -------------------------------------------------------
@@ -575,6 +579,44 @@ def BNDSCViewLoadSectionAtAddress(
 		name: int
 		) -> bool:
 	return _BNDSCViewLoadSectionAtAddress(cache, name)
+
+
+# -------------------------------------------------------
+# _BNDSCViewProcessAllObjCSections
+
+_BNDSCViewProcessAllObjCSections = core.BNDSCViewProcessAllObjCSections
+_BNDSCViewProcessAllObjCSections.restype = None
+_BNDSCViewProcessAllObjCSections.argtypes = [
+		ctypes.POINTER(BNSharedCache),
+	]
+
+
+# noinspection PyPep8Naming
+def BNDSCViewProcessAllObjCSections(
+		cache: ctypes.POINTER(BNSharedCache)
+		) -> None:
+	return _BNDSCViewProcessAllObjCSections(cache)
+
+
+# -------------------------------------------------------
+# _BNDSCViewProcessObjCSectionsForImageWithInstallName
+
+_BNDSCViewProcessObjCSectionsForImageWithInstallName = core.BNDSCViewProcessObjCSectionsForImageWithInstallName
+_BNDSCViewProcessObjCSectionsForImageWithInstallName.restype = None
+_BNDSCViewProcessObjCSectionsForImageWithInstallName.argtypes = [
+		ctypes.POINTER(BNSharedCache),
+		ctypes.c_char_p,
+		ctypes.c_bool,
+	]
+
+
+# noinspection PyPep8Naming
+def BNDSCViewProcessObjCSectionsForImageWithInstallName(
+		cache: ctypes.POINTER(BNSharedCache), 
+		name: Optional[str], 
+		deallocName: bool
+		) -> None:
+	return _BNDSCViewProcessObjCSectionsForImageWithInstallName(cache, cstr(name), deallocName)
 
 
 # -------------------------------------------------------

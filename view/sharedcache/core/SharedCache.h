@@ -8,6 +8,10 @@
 #include "view/macho/machoview.h"
 #include "MetadataSerializable.hpp"
 #include "../api/sharedcachecore.h"
+#include "immer/map.hpp" 
+#include "immer/vector.hpp" 
+#include "immer/vector_transient.hpp" 
+#include "immer/map_transient.hpp" 
 
 #ifndef SHAREDCACHE_SHAREDCACHE_H
 #define SHAREDCACHE_SHAREDCACHE_H
@@ -22,7 +26,6 @@ namespace SharedCacheCore {
 		DSCViewStateLoaded,
 		DSCViewStateLoadedWithImages,
 	};
-
 
 	const std::string SharedCacheMetadataTag = "SHAREDCACHE-SharedCacheData";
 
@@ -61,7 +64,7 @@ namespace SharedCacheCore {
 	{
 		std::string installName;
 		uint64_t headerLocation;
-		std::vector<MemoryRegion> regions;
+		immer::vector<MemoryRegion> regions;
 
 		void Store(SerializationContext& context) const
 		{
@@ -81,33 +84,14 @@ namespace SharedCacheCore {
 			MSL(installName);
 			MSL(headerLocation);
 			auto bArr = context.doc["regions"].GetArray();
-			regions.clear();
+			auto local_regions = immer::vector_transient<MemoryRegion>();
 			for (auto& region : bArr)
 			{
 				MemoryRegion r;
 				r.LoadFromString(region.GetString());
-				regions.push_back(r);
+				local_regions.push_back(r);
 			}
-		}
-	};
-
-	struct BackingCache : public MetadataSerializable<BackingCache>
-	{
-		std::string path;
-		bool isPrimary = false;
-		std::vector<std::pair<uint64_t, std::pair<uint64_t, uint64_t>>> mappings;
-
-		void Store(SerializationContext& context) const
-		{
-			MSS(path);
-			MSS(isPrimary);
-			MSS(mappings);
-		}
-		void Load(DeserializationContext& context)
-		{
-			MSL(path);
-			MSL(isPrimary);
-			MSL(mappings);
+			regions = local_regions.persistent();
 		}
 	};
 
@@ -130,6 +114,16 @@ namespace SharedCacheCore {
 		uint64_t fileOffset;
 		uint32_t maxProt;
 		uint32_t initProt;
+	};
+
+	struct BackingCache : public MetadataSerializable<BackingCache>
+	{
+		std::string path;
+		bool isPrimary = false;
+		immer::vector<dyld_cache_mapping_info> mappings;
+
+		void Store(SerializationContext& context) const;
+		void Load(DeserializationContext& context);
 	};
 
 	struct LoadedMapping
@@ -273,74 +267,84 @@ namespace SharedCacheCore {
 
 	struct PACKED_STRUCT dyld_cache_header
 	{
-		char magic[16];					 // e.g. "dyld_v0    i386"
-		uint32_t mappingOffset;			 // file offset to first dyld_cache_mapping_info
-		uint32_t mappingCount;			 // number of dyld_cache_mapping_info entries
-		uint32_t imagesOffsetOld;		 // UNUSED: moved to imagesOffset to prevent older dsc_extarctors from crashing
-		uint32_t imagesCountOld;		 // UNUSED: moved to imagesCount to prevent older dsc_extarctors from crashing
-		uint64_t dyldBaseAddress;		 // base address of dyld when cache was built
-		uint64_t codeSignatureOffset;	 // file offset of code signature blob
-		uint64_t codeSignatureSize;		 // size of code signature blob (zero means to end of file)
-		uint64_t slideInfoOffsetUnused;	 // unused.  Used to be file offset of kernel slid info
-		uint64_t slideInfoSizeUnused;	 // unused.  Used to be size of kernel slid info
-		uint64_t localSymbolsOffset;	 // file offset of where local symbols are stored
-		uint64_t localSymbolsSize;		 // size of local symbols information
-		uint8_t uuid[16];				 // unique value for each shared cache file
-		uint64_t cacheType;				 // 0 for development, 1 for production // Kat: , 2 for iOS 16?
-		uint32_t branchPoolsOffset;		 // file offset to table of uint64_t pool addresses
-		uint32_t branchPoolsCount;		 // number of uint64_t entries
-		uint64_t accelerateInfoAddr;	 // (unslid) address of optimization info
-		uint64_t accelerateInfoSize;	 // size of optimization info
-		uint64_t imagesTextOffset;		 // file offset to first dyld_cache_image_text_info
-		uint64_t imagesTextCount;		 // number of dyld_cache_image_text_info entries
-		uint64_t patchInfoAddr;			 // (unslid) address of dyld_cache_patch_info
-		uint64_t patchInfoSize;	 // Size of all of the patch information pointed to via the dyld_cache_patch_info
-		uint64_t otherImageGroupAddrUnused;	 // unused
-		uint64_t otherImageGroupSizeUnused;	 // unused
-		uint64_t progClosuresAddr;			 // (unslid) address of list of program launch closures
-		uint64_t progClosuresSize;			 // size of list of program launch closures
-		uint64_t progClosuresTrieAddr;		 // (unslid) address of trie of indexes into program launch closures
-		uint64_t progClosuresTrieSize;		 // size of trie of indexes into program launch closures
-		uint32_t platform;					 // platform number (macOS=1, etc)
-		uint32_t formatVersion : 8,			 // dyld3::closure::kFormatVersion
-			dylibsExpectedOnDisk : 1,  // dyld should expect the dylib exists on disk and to compare inode/mtime to see if cache is valid
-			simulator : 1,			   // for simulator of specified platform
-			locallyBuiltCache : 1,	   // 0 for B&I built cache, 1 for locally built cache
-			builtFromChainedFixups : 1,	 // some dylib in cache was built using chained fixups, so patch tables must be used for overrides
-			padding : 20;				 // TBD
-		uint64_t sharedRegionStart;		 // base load address of cache if not slid
-		uint64_t sharedRegionSize;		 // overall size required to map the cache and all subCaches, if any
-		uint64_t maxSlide;				 // runtime slide of cache can be between zero and this value
-		uint64_t dylibsImageArrayAddr;	 // (unslid) address of ImageArray for dylibs in this cache
-		uint64_t dylibsImageArraySize;	 // size of ImageArray for dylibs in this cache
-		uint64_t dylibsTrieAddr;		 // (unslid) address of trie of indexes of all cached dylibs
-		uint64_t dylibsTrieSize;		 // size of trie of cached dylib paths
-		uint64_t otherImageArrayAddr;	 // (unslid) address of ImageArray for dylibs and bundles with dlopen closures
-		uint64_t otherImageArraySize;	 // size of ImageArray for dylibs and bundles with dlopen closures
-		uint64_t otherTrieAddr;	 // (unslid) address of trie of indexes of all dylibs and bundles with dlopen closures
-		uint64_t otherTrieSize;	 // size of trie of dylibs and bundles with dlopen closures
-		uint32_t mappingWithSlideOffset;		 // file offset to first dyld_cache_mapping_and_slide_info
-		uint32_t mappingWithSlideCount;			 // number of dyld_cache_mapping_and_slide_info entries
-		uint64_t dylibsPBLStateArrayAddrUnused;	 // unused
-		uint64_t dylibsPBLSetAddr;				 // (unslid) address of PrebuiltLoaderSet of all cached dylibs
-		uint64_t programsPBLSetPoolAddr;		 // (unslid) address of pool of PrebuiltLoaderSet for each program
-		uint64_t programsPBLSetPoolSize;		 // size of pool of PrebuiltLoaderSet for each program
-		uint64_t programTrieAddr;				 // (unslid) address of trie mapping program path to PrebuiltLoaderSet
-		uint32_t programTrieSize;
-		uint32_t osVersion;				// OS Version of dylibs in this cache for the main platform
-		uint32_t altPlatform;			// e.g. iOSMac on macOS
-		uint32_t altOsVersion;			// e.g. 14.0 for iOSMac
-		uint64_t swiftOptsOffset;		// file offset to Swift optimizations header
-		uint64_t swiftOptsSize;			// size of Swift optimizations header
-		uint32_t subCacheArrayOffset;	// file offset to first dyld_subcache_entry
-		uint32_t subCacheArrayCount;	// number of subCache entries
-		uint8_t symbolFileUUID[16];		// unique value for the shared cache file containing unmapped local symbols
-		uint64_t rosettaReadOnlyAddr;	// (unslid) address of the start of where Rosetta can add read-only/executable data
-		uint64_t rosettaReadOnlySize;	// maximum size of the Rosetta read-only/executable region
-		uint64_t rosettaReadWriteAddr;	// (unslid) address of the start of where Rosetta can add read-write data
-		uint64_t rosettaReadWriteSize;	// maximum size of the Rosetta read-write region
-		uint32_t imagesOffset;			// file offset to first dyld_cache_image_info
-		uint32_t imagesCount;			// number of dyld_cache_image_info entries
+		char        magic[16];              // e.g. "dyld_v0    i386"
+		uint32_t    mappingOffset;          // file offset to first dyld_cache_mapping_info
+		uint32_t    mappingCount;           // number of dyld_cache_mapping_info entries
+		uint32_t    imagesOffsetOld;        // UNUSED: moved to imagesOffset to prevent older dsc_extarctors from crashing
+		uint32_t    imagesCountOld;         // UNUSED: moved to imagesCount to prevent older dsc_extarctors from crashing
+		uint64_t    dyldBaseAddress;        // base address of dyld when cache was built
+		uint64_t    codeSignatureOffset;    // file offset of code signature blob
+		uint64_t    codeSignatureSize;      // size of code signature blob (zero means to end of file)
+		uint64_t    slideInfoOffsetUnused;  // unused.  Used to be file offset of kernel slid info
+		uint64_t    slideInfoSizeUnused;    // unused.  Used to be size of kernel slid info
+		uint64_t    localSymbolsOffset;     // file offset of where local symbols are stored
+		uint64_t    localSymbolsSize;       // size of local symbols information
+		uint8_t     uuid[16];               // unique value for each shared cache file
+		uint64_t    cacheType;              // 0 for development, 1 for production, 2 for multi-cache
+		uint32_t    branchPoolsOffset;      // file offset to table of uint64_t pool addresses
+		uint32_t    branchPoolsCount;       // number of uint64_t entries
+		uint64_t    dyldInCacheMH;          // (unslid) address of mach_header of dyld in cache
+		uint64_t    dyldInCacheEntry;       // (unslid) address of entry point (_dyld_start) of dyld in cache
+		uint64_t    imagesTextOffset;       // file offset to first dyld_cache_image_text_info
+		uint64_t    imagesTextCount;        // number of dyld_cache_image_text_info entries
+		uint64_t    patchInfoAddr;          // (unslid) address of dyld_cache_patch_info
+		uint64_t    patchInfoSize;          // Size of all of the patch information pointed to via the dyld_cache_patch_info
+		uint64_t    otherImageGroupAddrUnused;    // unused
+		uint64_t    otherImageGroupSizeUnused;    // unused
+		uint64_t    progClosuresAddr;       // (unslid) address of list of program launch closures
+		uint64_t    progClosuresSize;       // size of list of program launch closures
+		uint64_t    progClosuresTrieAddr;   // (unslid) address of trie of indexes into program launch closures
+		uint64_t    progClosuresTrieSize;   // size of trie of indexes into program launch closures
+		uint32_t    platform;               // platform number (macOS=1, etc)
+		uint32_t    formatVersion          : 8,  // dyld3::closure::kFormatVersion
+					dylibsExpectedOnDisk   : 1,  // dyld should expect the dylib exists on disk and to compare inode/mtime to see if cache is valid
+					simulator              : 1,  // for simulator of specified platform
+					locallyBuiltCache      : 1,  // 0 for B&I built cache, 1 for locally built cache
+					builtFromChainedFixups : 1,  // some dylib in cache was built using chained fixups, so patch tables must be used for overrides
+					padding                : 20; // TBD
+		uint64_t    sharedRegionStart;      // base load address of cache if not slid
+		uint64_t    sharedRegionSize;       // overall size required to map the cache and all subCaches, if any
+		uint64_t    maxSlide;               // runtime slide of cache can be between zero and this value
+		uint64_t    dylibsImageArrayAddr;   // (unslid) address of ImageArray for dylibs in this cache
+		uint64_t    dylibsImageArraySize;   // size of ImageArray for dylibs in this cache
+		uint64_t    dylibsTrieAddr;         // (unslid) address of trie of indexes of all cached dylibs
+		uint64_t    dylibsTrieSize;         // size of trie of cached dylib paths
+		uint64_t    otherImageArrayAddr;    // (unslid) address of ImageArray for dylibs and bundles with dlopen closures
+		uint64_t    otherImageArraySize;    // size of ImageArray for dylibs and bundles with dlopen closures
+		uint64_t    otherTrieAddr;          // (unslid) address of trie of indexes of all dylibs and bundles with dlopen closures
+		uint64_t    otherTrieSize;          // size of trie of dylibs and bundles with dlopen closures
+		uint32_t    mappingWithSlideOffset; // file offset to first dyld_cache_mapping_and_slide_info
+		uint32_t    mappingWithSlideCount;  // number of dyld_cache_mapping_and_slide_info entries
+		uint64_t    dylibsPBLStateArrayAddrUnused;    // unused
+		uint64_t    dylibsPBLSetAddr;           // (unslid) address of PrebuiltLoaderSet of all cached dylibs
+		uint64_t    programsPBLSetPoolAddr;     // (unslid) address of pool of PrebuiltLoaderSet for each program 
+		uint64_t    programsPBLSetPoolSize;     // size of pool of PrebuiltLoaderSet for each program
+		uint64_t    programTrieAddr;            // (unslid) address of trie mapping program path to PrebuiltLoaderSet
+		uint32_t    programTrieSize;
+		uint32_t    osVersion;                  // OS Version of dylibs in this cache for the main platform
+		uint32_t    altPlatform;                // e.g. iOSMac on macOS
+		uint32_t    altOsVersion;               // e.g. 14.0 for iOSMac
+		uint64_t    swiftOptsOffset;        // VM offset from cache_header* to Swift optimizations header
+		uint64_t    swiftOptsSize;          // size of Swift optimizations header
+		uint32_t    subCacheArrayOffset;    // file offset to first dyld_subcache_entry
+		uint32_t    subCacheArrayCount;     // number of subCache entries
+		uint8_t     symbolFileUUID[16];     // unique value for the shared cache file containing unmapped local symbols
+		uint64_t    rosettaReadOnlyAddr;    // (unslid) address of the start of where Rosetta can add read-only/executable data
+		uint64_t    rosettaReadOnlySize;    // maximum size of the Rosetta read-only/executable region
+		uint64_t    rosettaReadWriteAddr;   // (unslid) address of the start of where Rosetta can add read-write data
+		uint64_t    rosettaReadWriteSize;   // maximum size of the Rosetta read-write region
+		uint32_t    imagesOffset;           // file offset to first dyld_cache_image_info
+		uint32_t    imagesCount;            // number of dyld_cache_image_info entries
+		uint32_t    cacheSubType;           // 0 for development, 1 for production, when cacheType is multi-cache(2)
+		uint32_t    padding2;
+		uint64_t    objcOptsOffset;         // VM offset from cache_header* to ObjC optimizations header
+		uint64_t    objcOptsSize;           // size of ObjC optimizations header
+		uint64_t    cacheAtlasOffset;       // VM offset from cache_header* to embedded cache atlas for process introspection
+		uint64_t    cacheAtlasSize;         // size of embedded cache atlas
+		uint64_t    dynamicDataOffset;      // VM offset from cache_header* to the location of dyld_cache_dynamic_data_header
+		uint64_t    dynamicDataMaxSize;     // maximum size of space reserved from dynamic data
+		uint32_t    tproMappingsOffset;     // file offset to first dyld_cache_tpro_mapping_info
+		uint32_t    tproMappingsCount;      // number of dyld_cache_tpro_mapping_info entries
 	};
 
 	struct PACKED_STRUCT dyld_subcache_entry
@@ -356,6 +360,18 @@ namespace SharedCacheCore {
 		char fileExtension[32];
 	};
 
+	struct ObjCOptimizationHeader
+	{
+		uint32_t version;
+		uint32_t flags;
+		uint64_t headerInfoROCacheOffset;
+		uint64_t headerInfoRWCacheOffset;
+		uint64_t selectorHashTableCacheOffset;
+		uint64_t classHashTableCacheOffset;
+		uint64_t protocolHashTableCacheOffset;
+		uint64_t relativeMethodSelectorBaseAddressOffset;
+	};
+
 	#if defined(_MSC_VER)
 		#pragma pack(pop)
 	#else
@@ -367,36 +383,36 @@ namespace SharedCacheCore {
 	{
 		uint64_t textBase = 0;
 		uint64_t loadCommandOffset = 0;
-		mach_header_64 ident;
+		mach_header_64 ident {};
 		std::string identifierPrefix;
 		std::string installName;
 
-		std::vector<std::pair<uint64_t, bool>> entryPoints;
-		std::vector<uint64_t> m_entryPoints;  // list of entrypoints
+		immer::vector<std::pair<uint64_t, bool>> entryPoints;
+		immer::vector<uint64_t> m_entryPoints;  // list of entrypoints
 
-		symtab_command symtab;
-		dysymtab_command dysymtab;
-		dyld_info_command dyldInfo;
-		routines_command_64 routines64;
-		function_starts_command functionStarts;
-		std::vector<section_64> moduleInitSections;
-		linkedit_data_command exportTrie;
+		symtab_command symtab {};
+		dysymtab_command dysymtab {};
+		dyld_info_command dyldInfo {};
+		routines_command_64 routines64 {};
+		function_starts_command functionStarts {};
+		immer::vector<section_64> moduleInitSections;
+		linkedit_data_command exportTrie {};
 		linkedit_data_command chainedFixups {};
 
 		uint64_t relocationBase;
 		// Section and program headers, internally use 64-bit form as it is a superset of 32-bit
-		std::vector<segment_command_64> segments;  // only three types of sections __TEXT, __DATA, __IMPORT
-		segment_command_64 linkeditSegment;
-		std::vector<section_64> sections;
-		std::vector<std::string> sectionNames;
+		immer::vector<segment_command_64> segments;  // only three types of sections __TEXT, __DATA, __IMPORT
+		segment_command_64 linkeditSegment {};
+		immer::vector<section_64> sections;
+		immer::vector<std::string> sectionNames;
 
-		std::vector<section_64> symbolStubSections;
-		std::vector<section_64> symbolPointerSections;
+		immer::vector<section_64> symbolStubSections;
+		immer::vector<section_64> symbolPointerSections;
 
-		std::vector<std::string> dylibs;
+		immer::vector<std::string> dylibs;
 
-		build_version_command buildVersion;
-		std::vector<build_tool_version> buildToolVersions;
+		build_version_command buildVersion {};
+		immer::vector<build_tool_version> buildToolVersions;
 
 		std::string exportTriePath;
 
@@ -538,6 +554,8 @@ namespace SharedCacheCore {
 
 		struct State;
 
+		struct ViewSpecificState;
+
 	private:
 		Ref<Logger> m_logger;
 		/* VIEW STATE BEGIN -- SERIALIZE ALL OF THIS AND STORE IT IN RAW VIEW */
@@ -552,6 +570,7 @@ namespace SharedCacheCore {
 		bool m_metadataValid = false;
 
 		/* VIEWSTATE END -- NOTHING PAST THIS IS SERIALIZED */
+		std::shared_ptr<ViewSpecificState> m_viewSpecificState;
 
 		/* API VIEW START */
 		BinaryNinja::Ref<BinaryNinja::BinaryView> m_dscView;
@@ -570,41 +589,52 @@ namespace SharedCacheCore {
 
 		void ParseAndApplySlideInfoForFile(std::shared_ptr<MMappedFileAccessor> file);
 		std::optional<uint64_t> GetImageStart(std::string installName);
-		std::optional<SharedCacheMachOHeader> HeaderForAddress(uint64_t);
-		bool LoadImageWithInstallName(std::string installName);
+		const SharedCacheMachOHeader* HeaderForAddress(uint64_t);
+		bool LoadImageWithInstallName(std::string_view installName, bool skipObjC);
 		bool LoadSectionAtAddress(uint64_t address);
-		bool LoadImageContainingAddress(uint64_t address);
+		bool LoadImageContainingAddress(uint64_t address, bool skipObjC);
+		void ProcessObjCSectionsForImageWithInstallName(std::string_view installName);
+		void ProcessAllObjCSections();
 		std::string NameForAddress(uint64_t address);
 		std::string ImageNameForAddress(uint64_t address);
 		std::vector<std::string> GetAvailableImages();
 
-		std::vector<MemoryRegion> GetMappedRegions() const;
+		immer::vector<MemoryRegion> GetMappedRegions() const;
+		bool IsMemoryMapped(uint64_t address);
 
 		std::vector<std::pair<std::string, Ref<Symbol>>> LoadAllSymbolsAndWait();
 
-		const std::unordered_map<std::string, uint64_t>& AllImageStarts() const;
-		const std::unordered_map<uint64_t, SharedCacheMachOHeader>& AllImageHeaders() const;
+		const immer::map<std::string, uint64_t>& AllImageStarts() const;
+		const immer::map<uint64_t, SharedCacheMachOHeader>& AllImageHeaders() const;
 
 		std::string SerializedImageHeaderForAddress(uint64_t address);
 		std::string SerializedImageHeaderForName(std::string name);
 
 		void FindSymbolAtAddrAndApplyToAddr(uint64_t symbolLocation, uint64_t targetLocation, bool triggerReanalysis);
 
-		const std::vector<BackingCache>& BackingCaches() const;
+		const immer::vector<BackingCache>& BackingCaches() const;
 
 		DSCViewState ViewState() const;
 
 		explicit SharedCache(BinaryNinja::Ref<BinaryNinja::BinaryView> rawView);
 		virtual ~SharedCache();
 
+		size_t GetObjCRelativeMethodBaseAddress(const VMReader& reader) const;
+
+private:
 		std::optional<SharedCacheMachOHeader> LoadHeaderForAddress(
-			std::shared_ptr<VM> vm, uint64_t address, std::string installName);
+			std::shared_ptr<VM> vm, uint64_t address, std::string_view installName);
 		void InitializeHeader(
-			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, std::vector<MemoryRegion*> regionsToLoad);
+			Ref<BinaryView> view, VM* vm, SharedCacheMachOHeader header, const std::vector<const MemoryRegion*> regionsToLoad);
 		void ReadExportNode(std::vector<Ref<Symbol>>& symbolList, SharedCacheMachOHeader& header, DataBuffer& buffer,
 			uint64_t textBase, const std::string& currentText, size_t cursor, uint32_t endGuard);
 		std::vector<Ref<Symbol>> ParseExportTrie(
 			std::shared_ptr<MMappedFileAccessor> linkeditFile, SharedCacheMachOHeader header);
+
+		Ref<TypeLibrary> TypeLibraryForImage(const std::string& installName);
+
+		size_t GetBaseAddress() const;
+		std::optional<ObjCOptimizationHeader> GetObjCOptimizationHeader(VMReader reader) const;
 
 		const State& State() const { return *m_state; }
 		struct State& MutableState() { AssertMutable(); return *m_state; }

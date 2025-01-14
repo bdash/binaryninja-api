@@ -149,12 +149,12 @@ void MMAP::Map()
 		return;
 	}
 
-	_mmap = MapViewOfFile(
+	_mmap = static_cast<uint8_t*>(MapViewOfFile(
 		hMapping,                    // handle to the file mapping object
 		FILE_MAP_COPY,         		 // desired access
 		0,                           // file offset (high-order DWORD)
 		0,                           // file offset (low-order DWORD)
-		0);                          // number of bytes to map (0 = entire file)
+		0));                         // number of bytes to map (0 = entire file)
 
 	if (_mmap == nullptr)
 	{
@@ -174,13 +174,14 @@ void MMAP::Map()
 	len = ftell(fd);
 	fseek(fd, 0L, SEEK_SET);
 
-	_mmap = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_PRIVATE, fileno(fd), 0u);
-	if (_mmap == MAP_FAILED)
+	void *result = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_PRIVATE, fileno(fd), 0u);
+	if (result == MAP_FAILED)
 	{
 		// Handle error
 		return;
 	}
 
+	_mmap = static_cast<uint8_t*>(result);
 	mapped = true;
 #endif
 }
@@ -206,52 +207,54 @@ void MMAP::Unmap()
 std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>> MMappedFileAccessor::Open(BinaryNinja::Ref<BinaryNinja::BinaryView> dscView, const uint64_t sessionID, const std::string &path, std::function<void(std::shared_ptr<MMappedFileAccessor>)> postAllocationRoutine)
 {
 	std::scoped_lock<std::mutex> lock(fileAccessorsMutex);
-	if (fileAccessors.count(path) == 0)
-	{
-		auto fileAcccessor = std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>>(new SelfAllocatingWeakPtr<MMappedFileAccessor>(
-			// Allocator logic for the SelfAllocatingWeakPtr
-			[path=path, sessionID=sessionID, dscView](){
-				std::unique_lock<std::mutex> _lock(fileAccessorDequeMutex);
-
-				// Iterate through held references and start removing them until we can get a file pointer
-				// FIXME: This could clear all currently used file pointers and still not get one. FIX!
-				// 		We should probably use a condition variable here to wait for a file pointer to be released!!!
-				for (auto& [_, fileAccessorDeque] : fileAccessorReferenceHolder)
-				{
-					if (fileAccessorSemaphore.try_acquire())
-						break;
-					fileAccessorDeque.pop_front();
-				}
-
-				mmapCount++;
-				_lock.unlock();
-				auto accessor = std::shared_ptr<MMappedFileAccessor>(new MMappedFileAccessor(ResolveFilePath(dscView, path)), [](MMappedFileAccessor* accessor){
-					// worker thread or we can deadlock on exit here.
-					BinaryNinja::WorkerEnqueue([accessor](){
-						fileAccessorSemaphore.release();
-						mmapCount--;
-						if (fileAccessors.count(accessor->m_path))
-						{
-							std::scoped_lock<std::mutex> lock(fileAccessorsMutex);
-							fileAccessors.erase(accessor->m_path);
-						}
-						delete accessor;
-					}, "MMappedFileAccessor Destructor");
-				});
-				_lock.lock();
-				// If some background thread has managed to try and open a file when the BV was already closed,
-				// 		we can still give them the file they want so they dont crash, but as soon as they let go it's gone.
-				if (!blockedSessionIDs.count(sessionID))
-					fileAccessorReferenceHolder[sessionID].push_back(accessor);
-				return accessor;
-			},
-			[postAllocationRoutine=postAllocationRoutine](std::shared_ptr<MMappedFileAccessor> accessor){
-				if (postAllocationRoutine)
-					postAllocationRoutine(accessor);
-			}));
-		fileAccessors.insert_or_assign(path, fileAcccessor);
+	if (auto it = fileAccessors.find(path); it != fileAccessors.end()) {
+		return it->second;
 	}
-	return fileAccessors.at(path);
+
+	auto fileAcccessor = std::shared_ptr<SelfAllocatingWeakPtr<MMappedFileAccessor>>(new SelfAllocatingWeakPtr<MMappedFileAccessor>(
+		// Allocator logic for the SelfAllocatingWeakPtr
+		[path=path, sessionID=sessionID, dscView](){
+			std::unique_lock<std::mutex> _lock(fileAccessorDequeMutex);
+
+			// Iterate through held references and start removing them until we can get a file pointer
+			// FIXME: This could clear all currently used file pointers and still not get one. FIX!
+			// 		We should probably use a condition variable here to wait for a file pointer to be released!!!
+			for (auto& [_, fileAccessorDeque] : fileAccessorReferenceHolder)
+			{
+				if (fileAccessorSemaphore.try_acquire())
+					break;
+				fileAccessorDeque.pop_front();
+			}
+
+			mmapCount++;
+			_lock.unlock();
+			auto accessor = std::shared_ptr<MMappedFileAccessor>(new MMappedFileAccessor(ResolveFilePath(dscView, path)), [](MMappedFileAccessor* accessor){
+				// worker thread or we can deadlock on exit here.
+				BinaryNinja::WorkerEnqueue([accessor](){
+					fileAccessorSemaphore.release();
+					mmapCount--;
+					if (fileAccessors.count(accessor->m_path))
+					{
+						std::scoped_lock<std::mutex> lock(fileAccessorsMutex);
+						fileAccessors.erase(accessor->m_path);
+					}
+					delete accessor;
+				}, "MMappedFileAccessor Destructor");
+			});
+			_lock.lock();
+			// If some background thread has managed to try and open a file when the BV was already closed,
+			// 		we can still give them the file they want so they dont crash, but as soon as they let go it's gone.
+			if (!blockedSessionIDs.count(sessionID))
+				fileAccessorReferenceHolder[sessionID].push_back(accessor);
+			return accessor;
+		},
+		[postAllocationRoutine=postAllocationRoutine](std::shared_ptr<MMappedFileAccessor> accessor){
+			if (postAllocationRoutine)
+				postAllocationRoutine(accessor);
+		}));
+
+	fileAccessors.insert_or_assign(path, fileAcccessor);
+	return fileAcccessor;
 }
 
 
@@ -374,102 +377,80 @@ MMappedFileAccessor::~MMappedFileAccessor()
 
 void MMappedFileAccessor::WritePointer(size_t address, size_t pointer)
 {
-	((size_t*)(&((uint8_t*)m_mmap._mmap)[address]))[0] = pointer;
+	*(size_t*)&m_mmap._mmap[address] = pointer;
+}
+
+template <typename T>
+T MMappedFileAccessor::Read(size_t address) {
+	T result;
+	Read(&result, address, sizeof(T));
+	return result;
 }
 
 std::string MMappedFileAccessor::ReadNullTermString(size_t address)
 {
 	if (address > m_mmap.len)
 		return "";
-	size_t max = m_mmap.len;
-	size_t i = address;
-	std::string str;
-	str.reserve(140);
-	while (i < max)
-	{
-		char c = ((char*)(&((uint8_t*)m_mmap._mmap)[i]))[0];
-		if (c == 0)
-			break;
-		str += c;
-		i++;
-	}
-	str.shrink_to_fit();
-	return str;
+	auto start = &m_mmap._mmap[address];
+	auto end = &m_mmap._mmap[m_mmap.len];
+	auto nul = std::find(start, end, 0);
+	return std::string(start, nul);
 }
 
 uint8_t MMappedFileAccessor::ReadUChar(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((uint8_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<uint8_t>(address);
 }
 
 int8_t MMappedFileAccessor::ReadChar(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((int8_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<int8_t>(address);
 }
 
 uint16_t MMappedFileAccessor::ReadUShort(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((uint16_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<uint16_t>(address);
 }
 
 int16_t MMappedFileAccessor::ReadShort(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((int16_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<int16_t>(address);
 }
 
 uint32_t MMappedFileAccessor::ReadUInt32(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((uint32_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<uint32_t>(address);
 }
 
 int32_t MMappedFileAccessor::ReadInt32(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((int32_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<int32_t>(address);
 }
 
 uint64_t MMappedFileAccessor::ReadULong(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((uint64_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<uint64_t>(address);
 }
 
 int64_t MMappedFileAccessor::ReadLong(size_t address)
 {
-	if (address > m_mmap.len)
-		throw MappingReadException();
-	return ((int64_t*)(&(((uint8_t*)m_mmap._mmap)[address])))[0];
+	return Read<int64_t>(address);
 }
 
 BinaryNinja::DataBuffer MMappedFileAccessor::ReadBuffer(size_t address, size_t length)
 {
-	if (address > m_mmap.len)
+	if (m_mmap.len <= length || address > m_mmap.len - length)
 		throw MappingReadException();
-	if (address + length > m_mmap.len)
-		throw MappingReadException();
-	void* data = (void*)(&(((uint8_t*)m_mmap._mmap)[address]));
-	return BinaryNinja::DataBuffer(data, length);
+
+	return BinaryNinja::DataBuffer(&m_mmap._mmap[address], length);
 }
 
 void MMappedFileAccessor::Read(void* dest, size_t address, size_t length)
 {
-	if (address > m_mmap.len)
+	if (m_mmap.len <= length || address > m_mmap.len - length)
 		throw MappingReadException();
-	if (address + length > m_mmap.len)
-		throw MappingReadException();
-	memcpy(dest, (void*)&(((uint8_t*)m_mmap._mmap)[address]), length);
+
+	memcpy(dest, &m_mmap._mmap[address], length);
 }
 
 
