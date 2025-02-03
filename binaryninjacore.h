@@ -37,14 +37,14 @@
 // Current ABI version for linking to the core. This is incremented any time
 // there are changes to the API that affect linking, including new functions,
 // new types, or modifications to existing functions or types.
-#define BN_CURRENT_CORE_ABI_VERSION 91
+#define BN_CURRENT_CORE_ABI_VERSION 92
 
 // Minimum ABI version that is supported for loading of plugins. Plugins that
 // are linked to an ABI version less than this will not be able to load and
 // will require rebuilding. The minimum version is increased when there are
 // incompatible changes that break binary compatibility, such as changes to
 // existing types or functions.
-#define BN_MINIMUM_CORE_ABI_VERSION 89
+#define BN_MINIMUM_CORE_ABI_VERSION 92
 
 #ifdef __GNUC__
 	#ifdef BINARYNINJACORE_LIBRARY
@@ -302,6 +302,7 @@ extern "C"
 	typedef struct BNDemangler BNDemangler;
 	typedef struct BNFirmwareNinja BNFirmwareNinja;
 	typedef struct BNFirmwareNinjaReferenceNode BNFirmwareNinjaReferenceNode;
+	typedef struct BNFirmwareNinjaRelationship BNFirmwareNinjaRelationship;
 	typedef struct BNLineFormatter BNLineFormatter;
 	typedef struct BNRenderLayer BNRenderLayer;
 
@@ -8116,16 +8117,53 @@ extern "C"
 	BINARYNINJACOREAPI void BNFirmwareNinjaFreeBoardDeviceAccesses(BNFirmwareNinjaDeviceAccesses *accesses, int size);
 	BINARYNINJACOREAPI BNFirmwareNinjaReferenceNode* BNFirmwareNinjaGetMemoryRegionReferenceTree(BNFirmwareNinja* fn, uint64_t start, uint64_t end, BNFirmwareNinjaFunctionMemoryAccesses** fma, int size, uint64_t* value);
 	BINARYNINJACOREAPI BNFirmwareNinjaReferenceNode* BNFirmwareNinjaGetAddressReferenceTree(BNFirmwareNinja* fn, uint64_t address, BNFirmwareNinjaFunctionMemoryAccesses** fma, int size, uint64_t* value);
+	BINARYNINJACOREAPI BNFirmwareNinjaRelationship** BNFirmwareNinjaQueryRelationships(BNFirmwareNinja* fn, size_t* count);
+	BINARYNINJACOREAPI void BNFirmwareNinjaAddRelationship(BNFirmwareNinja* fn, BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI BNFirmwareNinjaRelationship* BNFirmwareNinjaGetRelationshipByGuid(BNFirmwareNinja* fn, const char* guid);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRemoveRelationshipByGuid(BNFirmwareNinja* fn, const char* guid);
 
 	BINARYNINJACOREAPI bool BNFirmwareNinjaReferenceNodeIsFunction(BNFirmwareNinjaReferenceNode* node);
 	BINARYNINJACOREAPI bool BNFirmwareNinjaReferenceNodeIsDataVariable(BNFirmwareNinjaReferenceNode* node);
 	BINARYNINJACOREAPI bool BNFirmwareNinjaReferenceNodeHasChildren(BNFirmwareNinjaReferenceNode* node);
 	BINARYNINJACOREAPI BNFunction* BNFirmwareNinjaReferenceNodeGetFunction(BNFirmwareNinjaReferenceNode* node);
-	BINARYNINJACOREAPI BNDataVariable* BNFirmwareNinjaReferenceNodeGetDataVariable(BNFirmwareNinjaReferenceNode* node);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaReferenceNodeGetDataVariable(BNFirmwareNinjaReferenceNode* node, BNDataVariable* dataVariable);
 	BINARYNINJACOREAPI BNFirmwareNinjaReferenceNode** BNFirmwareNinjaReferenceNodeGetChildren(BNFirmwareNinjaReferenceNode* parent, size_t* count);
 	BINARYNINJACOREAPI void BNFreeFirmwareNinjaReferenceNode(BNFirmwareNinjaReferenceNode* node);
 	BINARYNINJACOREAPI BNFirmwareNinjaReferenceNode* BNNewFirmwareNinjaReferenceNodeReference(BNFirmwareNinjaReferenceNode* node);
 	BINARYNINJACOREAPI void BNFreeFirmwareNinjaReferenceNodes(BNFirmwareNinjaReferenceNode** nodes, size_t count);
+
+	BINARYNINJACOREAPI BNFirmwareNinjaRelationship* BNCreateFirmwareNinjaRelationship(BNBinaryView* view);
+	BINARYNINJACOREAPI void BNFreeFirmwareNinjaRelationship(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI BNFirmwareNinjaRelationship* BNNewFirmwareNinjaRelationshipReference(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetPrimaryAddress(BNFirmwareNinjaRelationship* rel, uint64_t address);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetPrimaryDataVariable(BNFirmwareNinjaRelationship* rel, uint64_t dataVariableAddress);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetPrimaryFunction(BNFirmwareNinjaRelationship* rel, BNFunction* function);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipPrimaryIsDataVariable(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipPrimaryIsFunction(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipPrimaryIsAddress(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipGetPrimaryDataVariable(BNFirmwareNinjaRelationship* rel, BNDataVariable* dataVariable);
+	BINARYNINJACOREAPI BNFunction* BNFirmwareNinjaRelationshipGetPrimaryFunction(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipGetPrimaryAddress(BNFirmwareNinjaRelationship* rel, uint64_t* result);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetSecondaryExternalAddress(BNFirmwareNinjaRelationship* rel, BNProjectFile* projectFile, uint64_t address);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetSecondaryExternalSymbol(BNFirmwareNinjaRelationship* rel, BNProjectFile* projectFile, const char* symbol);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetSecondaryAddress(BNFirmwareNinjaRelationship* rel, uint64_t address);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetSecondaryDataVariable(BNFirmwareNinjaRelationship* rel, uint64_t dataVariableAddress);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetSecondaryFunction(BNFirmwareNinjaRelationship* rel, BNFunction* function);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipSecondaryIsDataVariable(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipSecondaryIsFunction(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipSecondaryIsAddress(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipSecondaryIsExternalAddress(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipSecondaryIsExternalSymbol(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI BNProjectFile* BNFirmwareNinjaRelationshipGetSecondaryExternalProjectFile(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipGetSecondaryAddress(BNFirmwareNinjaRelationship* rel, uint64_t* result);
+	BINARYNINJACOREAPI bool BNFirmwareNinjaRelationshipGetSecondaryDataVariable(BNFirmwareNinjaRelationship* rel, BNDataVariable* dataVariable);
+	BINARYNINJACOREAPI BNFunction* BNFirmwareNinjaRelationshipGetSecondaryFunction(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI const char* BNFirmwareNinjaRelationshipGetSecondaryExternalSymbol(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetDescription(BNFirmwareNinjaRelationship* rel, const char* description);
+	BINARYNINJACOREAPI const char* BNFirmwareNinjaRelationshipGetDescription(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI void BNFirmwareNinjaRelationshipSetProvenance(BNFirmwareNinjaRelationship* rel, const char* provenance);
+	BINARYNINJACOREAPI const char* BNFirmwareNinjaRelationshipGetProvenance(BNFirmwareNinjaRelationship* rel);
+	BINARYNINJACOREAPI const char* BNFirmwareNinjaRelationshipGetGuid(BNFirmwareNinjaRelationship* rel);
 
 	// Line formatters
 	BINARYNINJACOREAPI BNLineFormatter* BNRegisterLineFormatter(const char* name, BNCustomLineFormatter* callbacks);

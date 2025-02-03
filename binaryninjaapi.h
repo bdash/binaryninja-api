@@ -18570,60 +18570,250 @@ namespace BinaryNinja {
 	};
 
 
-	/*! FirmwareNinjaReferenceNode is a class used to build reference trees to memory regions, functions, and data
+	/*! FirmwareNinjaReferenceNode is a class used to build reference trees for memory regions, functions, and data
 		variables. This class is only available in the Ultimate Edition of Binary Ninja.
 
 		\ingroup firmwareninja
 	*/
 	class FirmwareNinjaReferenceNode : public CoreRefCountObject<BNFirmwareNinjaReferenceNode, BNNewFirmwareNinjaReferenceNodeReference, BNFreeFirmwareNinjaReferenceNode>
 	{
-		BNFirmwareNinjaReferenceNode* m_object;
 	public:
 		FirmwareNinjaReferenceNode(BNFirmwareNinjaReferenceNode* node);
 		~FirmwareNinjaReferenceNode();
 
-		/*! Determine if the reference tree node is for a function
+		/*! Returns true if the reference tree node contains a function
 
-			\return true if the reference tree node is for a function, false otherwise
+			\return true if the reference tree node contains a function, false otherwise
 		 */
 		bool IsFunction();
 
-		/*! Determine if the reference tree node is for a data variable
+		/*! Returns true if the reference tree node contains a data variable
 
-			\return true if the reference tree node is for a data variable, false otherwise
+			\return true if the reference tree node contains a data variable, false otherwise
 		 */
 		bool IsDataVariable();
 
-		/*! Determine if the reference tree node contains child nodes
+		/*! Returns true if the reference tree node contains child nodes
 
 			\return true if the reference tree node contains child nodes, false otherwise
 		 */
 		bool HasChildren();
 
-		/*! Query the function contained in the reference tree node
+		/*! Get the function contained in the reference tree node
 
 			\param function Output function object
-			\return true if the function was queried successfully, false otherwise
+			\return true if the function was queried successfully, false if the reference tree node does not contain a function
 		 */
 		bool GetFunction(Ref<Function>& function);
 
-		/*! Query the data variable contained in the reference tree node
+		/*! Get the data variable contained in the reference tree node
 
 			\param function Output data variable object
-			\return true if the data variable was queried successfully, false otherwise
+			\return true if the data variable was queried successfully, false if the reference tree node does not contain a data variable
 		 */
 		bool GetDataVariable(DataVariable& variable);
 
-		/*! Query the child nodes contained in the reference tree node
+		/*! Get the child nodes contained in the reference tree node
 
 			\return Vector of child reference tree nodes
 		 */
 		std::vector<Ref<FirmwareNinjaReferenceNode>> GetChildren();
 	};
 
+	/*! FirmwareNinjaRelationship is a class used to represent inter-binary and cross-binary relationships. This class is
+		only available in the Ultimate Edition of Binary Ninja.
 
-	/*! FirmwareNinja is a class containing features specific to embedded firmware analysis. This class is only
-		available in the Ultimate Edition of Binary Ninja.
+		\ingroup firmwareninja
+	*/
+	class FirmwareNinjaRelationship : public CoreRefCountObject<BNFirmwareNinjaRelationship, BNNewFirmwareNinjaRelationshipReference, BNFreeFirmwareNinjaRelationship>
+	{
+	public:
+		FirmwareNinjaRelationship(Ref<BinaryView> view, BNFirmwareNinjaRelationship* relationship = nullptr);
+		~FirmwareNinjaRelationship();
+
+		/*! Set the primary relationship object to an address
+
+			\param address Address in current binary view
+		 */
+		void SetPrimaryAddress(uint64_t address);
+
+		/*! Set the primary relationship object to a data variable
+
+			\param var DataVariable in current binary view
+		 */
+		void SetPrimaryDataVariable(DataVariable& variable);
+
+		/*! Set the primary relationship object to a function
+
+			\param function Function in current binary view
+		 */
+		void SetPrimaryFunction(Ref<Function> function);
+
+		/*! Determine if the primary object is an address
+
+		  \return true if the primary object is an address, false otherwise
+		 */
+		bool PrimaryIsAddress() const;
+
+		/*! Returns true if the primary object is a data variable
+
+		  \return true if the primary object is a data variable, false otherwise
+		 */
+		bool PrimaryIsDataVariable() const;
+
+		/*! Returns true if the primary object is a function
+
+		  \return true if the primary object is a function, false otherwise
+		 */
+		bool PrimaryIsFunction() const;
+
+		/*! Get the primary data variable contained in the relationship
+
+		  \param var Output data variable
+		  \return true if the data variable was queried successfully, false if the primary object is not a data variable
+		 */
+		bool GetPrimaryDataVariable(DataVariable& var);
+
+		/*! Get the primary address contained in the relationship
+
+		  \return Optional address with a value if the primary object is an address
+		 */
+		std::optional<uint64_t> GetPrimaryAddress() const;
+
+		/*! Get the primary function contained in the relationship
+
+		  \return Function object if the primary object is a function, nullptr otherwise
+		 */
+		Ref<Function> GetPrimaryFunction() const;
+
+		/*! Set the secondary relationship object to an address
+
+			\param address Address in current binary view
+		 */
+		void SetSecondaryAddress(uint64_t address);
+
+		/*! Set the secondary relationship object to a data variable
+
+			\param var DataVariable in current binary view
+		 */
+		void SetSecondaryDataVariable(DataVariable& variable);
+
+		/*! Set the secondary relationship object to a function
+
+			\param function Function in current binary view
+		 */
+		void SetSecondaryFunction(Ref<Function> function);
+
+		/*! Set the secondary relationship object to an external address
+
+			\param projectFile Project file for external binary in the project
+			\param address Address in the external binary
+		 */
+		void SetSecondaryExternalAddress(Ref<ProjectFile> projectFile, uint64_t address);
+
+		/*! Set the secondary relationship object to an external symbol
+
+			\param projectFile Project file for the external binary in the project
+			\param sybmol Symbol in external binary
+		 */
+		void SetSecondaryExternalSymbol(Ref<ProjectFile> projectFile, const std::string& symbol);
+
+		/*! Determine if the secondary object is an address in the current binary view
+
+		  \return true if the secondary object is an address in the current binary view, false otherwise
+		 */
+		bool SecondaryIsAddress() const;
+
+		/*! Returns true if the secondary object is a data variable in the current binary view
+
+		  \return true if the secondary object is a data variable in the current binary view, false otherwise
+		 */
+		bool SecondaryIsDataVariable() const;
+
+		/*! Returns true if the secondary object is a function in the current binary view
+
+		  \return true if the secondary object is a function in the current binary view, false otherwise
+		 */
+		bool SecondaryIsFunction() const;
+
+		/*! Returns true if the secondary object is an address contained in another binary in the project
+
+		  \return true if the secondary object is an external address, false otherwise
+		 */
+		bool SecondaryIsExternalAddress() const;
+
+		/*! Returns true if the secondary object is a symbol contained in another binary in the project
+
+		  \return true if the secondary object is an external symbol, false otherwise
+		 */
+		bool SecondaryIsExternalSymbol() const;
+
+		/*! Get the secondary object's external project file
+
+		  \return The secondary object's external project file or nullptr if the secondary object is not an external address
+		 */
+		Ref<ProjectFile> GetSecondaryExternalProjectFile() const;
+
+		/*! Get the secondary address from the relationship
+
+		  \return Optional address containing a value, if the secondary object is an address
+		 */
+		std::optional<uint64_t> GetSecondaryAddress() const;
+
+		/*! Get the secondary data variable from the relationship
+
+		  \param var Output data variable
+		  \return true if the data variable was queried successfully, false if the secondary object is not a data variable
+		 */
+		bool GetSecondaryDataVariable(DataVariable& variable);
+
+		/*! Get the secondary function from the relationship
+
+		  \return Function object if the secondary object is a function, nullptr otherwise
+		 */
+		Ref<Function> GetSecondaryFunction() const;
+
+
+		/*! Get the secondary external address from the relationship
+
+		  \return External symbol string, or empty string if the secondary object is not an external symbol
+		 */
+		std::string GetSecondaryExternalSymbol() const;
+
+
+		/*! Set the description of the relationship
+
+		  \param description Description string
+		 */
+		void SetDescription(const std::string& description);
+
+		/*! Get the description of the relationship
+
+		  \return Description string, or empty string if not set
+		 */
+		std::string GetDescription() const;
+
+		/*! Set the provenance for the relationship
+
+		  \param provenance Provenance string
+		 */
+		void SetProvenance(const std::string& provenance);
+
+		/*! Get the provenance for the relationship
+
+		  \return Provenance string, or empty string if not set
+		 */
+		std::string GetProvenance() const;
+
+		/*! Get the relationship identifier
+
+		  \return Relationship GUID string
+		 */
+		std::string GetGuid() const;
+	};
+
+	/*! FirmwareNinja is a class containing features specific to firmware analysis. This class is only available in the
+		Ultimate Edition of Binary Ninja.
 
 		\ingroup firmwareninja
 	*/
@@ -18666,7 +18856,7 @@ namespace BinaryNinja {
 		/*! Query Firmware Ninja device definitions for the specified board
 
 			\param board Name of the board to query devices for
-			\return Vector of Firmware Ninja device definitions
+			\return Vector containing Firmware Ninja device definitions
 		 */
 		std::vector<FirmwareNinjaDevice> QueryDevicesForBoard(const std::string& board);
 
@@ -18676,7 +18866,7 @@ namespace BinaryNinja {
 			\param board lowCodeEntropyThreshold Low threshold for code entropy value range
 			\param blockSize Size of blocks to analyze
 			\param mode Analysis mode of operation
-			\return Vector of Firmware Ninja section information
+			\return Vector containing Firmware Ninja section information
 		 */
 		std::vector<BNFirmwareNinjaSection> FindSections(float highCodeEntropyThreshold, float lowCodeEntropyThreshold,
 			size_t blockSize, BNFirmwareNinjaSectionAnalysisMode mode);
@@ -18685,39 +18875,40 @@ namespace BinaryNinja {
 
 			\param progress Progress callback function
 			\param progressContext Progress context
-			\return Vector of Firmware Ninja function memory accesses information
+			\return Vector containing Firmware Ninja function memory accesses
 		 */
 		std::vector<FirmwareNinjaFunctionMemoryAccesses> GetFunctionMemoryAccesses(BNProgressFunction progress,
 			void* progressContext);
 
 		/*! Store Firmware Ninja function memory accesses information in the binary view metadata
 
-			\param fma Vector of Firmware Ninja function memory accesses information
+			\param fma Vector containin Firmware Ninja function memory accesses
 		 */
 		void StoreFunctionMemoryAccesses(const std::vector<FirmwareNinjaFunctionMemoryAccesses>& fma);
 
-		/*! Query cached Firmware Ninja function memory accesses information from the binary view metadata
+		/*! Query Firmware Ninja function memory accesses that are stored in the binary view metadata
 
-			\return Vector of Firmware Ninja memory analyis information
+			\return Vector containing Firmware Ninja function memory accesses
 		 */
 		std::vector<FirmwareNinjaFunctionMemoryAccesses> QueryFunctionMemoryAccesses();
 
-		/*! Compute number of accesses mad to memory-mapped hardware devices for each board that is compatible with the
-			current architecture
+		/*! Compute number of accesses made to memory-mapped hardware devices for each bundled board that is compatible with
+			the current architecture
 
-			\param fma Vector of Firmware Ninja function memory accesses information
-			\return Vector of Firmware Ninja device accesses information for each board
+			\param fma Vector containing Firmware Ninja function memory accesses
+			\return Vector containing Firmware Ninja device accesses for each board
 		 */
 		std::vector<FirmwareNinjaDeviceAccesses> GetBoardDeviceAccesses(
 			const std::vector<FirmwareNinjaFunctionMemoryAccesses>& fma);
 
 
-		/*! Returns a tree of reference nodes that reference the memory region represented by the given device
+		/*! Returns a tree of reference nodes that reference the memory region represented by the given Firmware Ninja
+			device
 
 			\param device Firmware Ninja device
-			\param fma Vector of Firmware Ninja function memory accesses information
-			\param value (Optional) only include components that originate with a write of this value to the device
-			\return Root reference node of tree
+			\param fma Vector containing Firmware Ninja function memory accesses
+			\param value (Optional) only build reference trees that originate with a write of the specified value
+			\return Root reference node for the tree
 		 */
 		Ref<FirmwareNinjaReferenceNode> GetReferenceTree(
 			FirmwareNinjaDevice& device,
@@ -18728,8 +18919,8 @@ namespace BinaryNinja {
 		/*! Returns a tree of reference nodes that reference the memory region represented by the given section
 
 			\param device Firmware Ninja device
-			\param fma Vector of Firmware Ninja function memory accesses information
-			\param value (Optional) only include components that originate with a write of this value to the device
+			\param fma Vector containing Firmware Ninja function memory accesses
+			\param value (Optional) only build reference trees that originate with a write of the specified value
 			\return Root reference node of tree
 		 */
 		Ref<FirmwareNinjaReferenceNode> GetReferenceTree(
@@ -18742,8 +18933,8 @@ namespace BinaryNinja {
 		/*! Returns a tree of reference nodes that reference the given address
 
 			\param device Firmware Ninja device
-			\param fma Vector of Firmware Ninja function memory accesses information
-			\param value (Optional) only include components that originate with a write of this value to the device
+			\param fma Vector containing Firmware Ninja function memory accesses
+			\param value (Optional) only build reference trees that originate with a write of the specified value
 			\return Root reference node of tree
 		 */
 		Ref<FirmwareNinjaReferenceNode> GetReferenceTree(
@@ -18751,6 +18942,31 @@ namespace BinaryNinja {
 			const std::vector<FirmwareNinjaFunctionMemoryAccesses>& fma,
 			uint64_t* value = nullptr
 		);
+
+		/*! Query Firmware Ninja relationships from the binary view metadata
+
+		  \return Vector containing Firmware Ninja relationships
+		 */
+		std::vector<Ref<FirmwareNinjaRelationship>> QueryRelationships();
+
+		/*! Store a Firmware Ninja relationship in the binary view metadata
+
+			\param relationship Firmware Ninja relationship
+		 */
+		void AddRelationship(Ref<FirmwareNinjaRelationship> relationship);
+
+		/* Query a Firmware Ninja relationship by GUID
+
+			\param guid GUID of the relationship to query
+			\return Firmware Ninja relationship if found, nullptr otherwise
+		 */
+		Ref<FirmwareNinjaRelationship> GetRelationshipByGuid(const std::string& guid);
+
+		/*! Remove a Firmware Ninja relationship from the binary view metadata
+
+			\param guid GUID of the relationship to remove
+		 */
+		void RemoveRelationshipByGuid(const std::string& guid);
 	};
 
 
