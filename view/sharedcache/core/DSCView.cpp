@@ -180,6 +180,12 @@ bool DSCView::Init()
 		"\t\tuint32_t tproMappingsCount;      // number of dyld_cache_tpro_mapping_info entries\n"
 		"\t};", headerType, err);
 
+	if (!err.empty() || !headerType.type)
+	{
+		LogError("Failed to parse header type: %s", err.c_str());
+		return false;
+	}
+
 	Ref<Settings> settings = GetLoadSettings(GetTypeName());
 
 	if (!settings)
