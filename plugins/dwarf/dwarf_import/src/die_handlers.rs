@@ -316,8 +316,11 @@ pub(crate) fn handle_function<R: ReaderType>(
     };
 
     // Alias function type in the case that it contains itself
-    let name = debug_info_builder_context.get_name(dwarf, unit, entry).unwrap_or("_unnamed_func".to_string());
-    let ntr = Type::named_type_from_type(&name, &Type::function(return_type.as_ref(), vec![], false));
+    let name = debug_info_builder_context
+        .get_name(dwarf, unit, entry)
+        .unwrap_or("_unnamed_func".to_string());
+    let ntr =
+        Type::named_type_from_type(&name, &Type::function(return_type.as_ref(), vec![], false));
     debug_info_builder.add_type(get_uid(dwarf, unit, entry), name, ntr, false);
 
     let mut parameters: Vec<FunctionParameter> = vec![];
