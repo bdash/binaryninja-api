@@ -1111,6 +1111,22 @@ bool MachoView::Init()
 			}
 		}
 	}
+	else
+	{
+		Ref<Settings> programSettings = Settings::Instance();
+		// If the Objective-C workflow plug-in is available and enabled, but its workflow is not registered,
+		// we are using a newer version of the plug-in that moved away from using a named workflow.
+		// Earlier versions of the Objective-C workflow plug-in used a named workflow rather than
+		// modifying `core.function.metaAnalysis`. Reference to the older workflow name need to be updated
+		// to `core.function.metaAnalysis`.
+		if (programSettings->Contains("corePlugins.workflows.objc") && programSettings->Get<bool>("corePlugins.workflows.objc") &&
+		     !Workflow::Instance("core.function.objectiveC")->IsRegistered())
+		{
+			auto previousWorkflow = programSettings->Get<std::string>("analysis.workflows.functionWorkflow", this);
+			if (previousWorkflow == "core.function.objectiveC")
+				programSettings->Set("analysis.workflows.functionWorkflow", "core.function.metaAnalysis", this);
+		}
+	}
 
 	m_imageBaseAdjustment = 0;
 	if (!initialImageBase)
@@ -1863,9 +1879,12 @@ bool MachoView::InitializeHeader(MachOHeader& header, bool isMainHeader, uint64_
 			Ref<Settings> programSettings = Settings::Instance();
 			if (programSettings->Contains("corePlugins.workflows.objc"))
 			{
-				if (programSettings->Get<bool>("corePlugins.workflows.objc"))
+				// The Objective-C workflow plug-in will stop registering a named workflow at
+				// some point in favor adding activities to `core.function.metaAnalysis`. 
+				if (Workflow::Instance("core.function.objectiveC")->IsRegistered())
 				{
-					programSettings->Set("analysis.workflows.functionWorkflow", "core.function.objectiveC", this);
+					if (programSettings->Get<bool>("corePlugins.workflows.objc"))
+						programSettings->Set("analysis.workflows.functionWorkflow", "core.function.objectiveC", this);
 				}
 			}
 		}
@@ -4072,9 +4091,12 @@ Ref<Settings> MachoViewType::GetLoadSettingsForData(BinaryView* data)
 		Ref<Settings> programSettings = Settings::Instance();
 		if (programSettings->Contains("corePlugins.workflows.objc"))
 		{
-			if (programSettings->Get<bool>("corePlugins.workflows.objc"))
+			// The Objective-C workflow plug-in will stop registering a named workflow at
+			// some point in favor adding activities to `core.function.metaAnalysis`. 
+			if (Workflow::Instance("core.function.objectiveC")->IsRegistered())
 			{
-				programSettings->Set("analysis.workflows.functionWorkflow", "core.function.objectiveC", viewRef);
+				if (programSettings->Get<bool>("corePlugins.workflows.objc"))
+					programSettings->Set("analysis.workflows.functionWorkflow", "core.function.objectiveC", viewRef);
 			}
 		}
 	}
